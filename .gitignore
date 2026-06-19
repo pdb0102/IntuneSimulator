@@ -1,0 +1,14 @@
+# Build output
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+*.user
+.vs/
+
+# Simulator-generated TLS cert
+*.pfx
+sim-cert.*
+
+# OS
+.DS_Store

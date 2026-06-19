@@ -1,0 +1,100 @@
+using System.Security.Cryptography.X509Certificates;
+
+namespace IntuneSimulator.Core;
+
+/// <summary>
+/// Singleton holding all runtime-mutable behavior. All members are guarded by <see cref="_gate"/>.
+/// Later tasks extend this (canned SCEP codes, revocation queue, failure-flow cursor).
+/// </summary>
+public sealed class SimulatorState
+{
+    private readonly object _gate = new();
+    private string _authPassword;
+    private string _challengePassword;
+    private X509Certificate2? _authCertificate;
+
+    private bool _logRequests;
+
+    public SimulatorState(SimulatorOptions options)
+    {
+        Options = options;
+        _authPassword = options.AuthPassword;
+        _challengePassword = options.ChallengePasswordOverride
+            ?? Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("intune-scep:" + options.AuthPassword));
+        if (options.AuthCertificatePfxBase64 is not null)
+        {
+            _authCertificate = new X509Certificate2(
+                Convert.FromBase64String(options.AuthCertificatePfxBase64),
+                options.AuthCertificatePassword);
+        }
+        _logRequests = options.LogRequests;
+    }
+
+    public SimulatorOptions Options { get; }
+
+    public string AuthPassword
+    {
+        get { lock (_gate) return _authPassword; }
+        set { lock (_gate) _authPassword = value; }
+    }
+
+    public string ChallengePassword
+    {
+        get { lock (_gate) return _challengePassword; }
+        set { lock (_gate) _challengePassword = value; }
+    }
+
+    public X509Certificate2? AuthCertificate
+    {
+        get { lock (_gate) return _authCertificate; }
+        set { lock (_gate) _authCertificate = value; }
+    }
+
+    public bool LogRequests
+    {
+        get { lock (_gate) return _logRequests; }
+        set { lock (_gate) _logRequests = value; }
+    }
+
+    private string? _cannedScepCode;
+    public string? CannedScepCode
+    {
+        get { lock (_gate) return _cannedScepCode; }
+        set { lock (_gate) _cannedScepCode = value; }
+    }
+
+    private readonly List<Revocation.RevocationRequestItem> _revocationQueue = new();
+
+    public IReadOnlyList<Revocation.RevocationRequestItem> RevocationQueue
+    {
+        get { lock (_gate) return _revocationQueue.ToArray(); }
+    }
+
+    public int RevocationQueueCount { get { lock (_gate) return _revocationQueue.Count; } }
+
+    public void EnqueueRevocation(Revocation.RevocationRequestItem item) { lock (_gate) _revocationQueue.Add(item); }
+
+    public List<Revocation.RevocationRequestItem> DequeueRevocations(int max, string? issuerName = null)
+    {
+        lock (_gate)
+        {
+            var result = new List<Revocation.RevocationRequestItem>();
+            int idx = 0;
+            int limit = Math.Max(max, 0);
+            while (idx < _revocationQueue.Count && result.Count < limit)
+            {
+                var item = _revocationQueue[idx];
+                if (issuerName is null || string.Equals(item.IssuerName, issuerName, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(item);
+                    _revocationQueue.RemoveAt(idx);
+                }
+                else
+                {
+                    idx++;
+                }
+            }
+            return result;
+        }
+    }
+}
