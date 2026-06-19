@@ -8,6 +8,8 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -17,13 +19,13 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Publish
-        run: dotnet publish --configuration Release --output ./publish
+        run: dotnet dotnet publish IntuneSimulator.Host/IntuneSimulator.Host.csproj --configuration Release --output ./publish
 
       - name: Zip artifacts
         run: cd publish && zip -r ../IntuneSimulator-${{ github.ref_name }}.zip .
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: IntuneSimulator-${{ github.ref_name }}.zip
           generate_release_notes: true
