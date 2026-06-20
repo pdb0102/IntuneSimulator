@@ -281,6 +281,67 @@ public sealed class TestCa {
         return BuildSuccessCertRep(issued, signer_cert, trans_id, sender_nonce);
     }
 
+    public bool VerifyOuterSignature(byte[] der) {
+        CmsSignedData signed;
+        SignerInformation signer;
+        Org.BouncyCastle.X509.X509Certificate signer_cert;
+
+        signed = new CmsSignedData(der);
+        signer = First(signed);
+        signer_cert = FirstCert(signed, signer);
+        try {
+            return signer.Verify(signer_cert.GetPublicKey());
+        } catch (System.Exception) {
+            return false;
+        }
+    }
+
+    public System.DateTime? ReadSigningTime(byte[] der) {
+        CmsSignedData signed;
+        SignerInformation signer;
+        Org.BouncyCastle.Asn1.Cms.Attribute? attr;
+
+        signed = new CmsSignedData(der);
+        signer = First(signed);
+        if (signer.SignedAttributes == null) { return null; }
+        attr = signer.SignedAttributes[new DerObjectIdentifier("1.2.840.113549.1.9.5")];
+        if (attr == null) { return null; }
+        return Org.BouncyCastle.Asn1.Cms.Time.GetInstance(attr.AttrValues[0]).ToDateTime();
+    }
+
+    public bool InnerCsrParses(byte[] der) {
+        byte[] inner;
+        Org.BouncyCastle.Pkcs.Pkcs10CertificationRequest parsed;
+
+        try {
+            inner = DecryptInner(der);
+            parsed = new Org.BouncyCastle.Pkcs.Pkcs10CertificationRequest(inner);
+            return parsed.Verify();
+        } catch (System.Exception) {
+            return false;
+        }
+    }
+
+    private static SignerInformation First(CmsSignedData signed) {
+        return signed.GetSignerInfos().GetSigners().Cast<SignerInformation>().First();
+    }
+
+    private static Org.BouncyCastle.X509.X509Certificate FirstCert(CmsSignedData signed, SignerInformation signer) {
+        return signed.GetCertificates().EnumerateMatches(signer.SignerID).Cast<Org.BouncyCastle.X509.X509Certificate>().First();
+    }
+
+    private byte[] DecryptInner(byte[] der) {
+        CmsSignedData signed;
+        MemoryStream env_stream;
+        CmsEnvelopedData env;
+
+        signed = new CmsSignedData(der);
+        env_stream = new MemoryStream();
+        signed.SignedContent.Write(env_stream);
+        env = new CmsEnvelopedData(env_stream.ToArray());
+        return env.GetRecipientInfos().GetRecipients().Cast<RecipientInformation>().First().GetContent(KeyPair.Private);
+    }
+
     public string PeekMessageType(byte[] der) {
         const string OidMessageType = "2.16.840.1.113733.1.9.2";
         CmsSignedData signed;
