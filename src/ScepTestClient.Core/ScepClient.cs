@@ -697,6 +697,7 @@ public sealed class ScepClient {
 
     private ScepResult<EnrollOutcome> BuildPkiMessage(EnrollRequest request, out PkiMessage pki_message, out string error) {
         Pkcs10 csr;
+        IScepKey signer_key;
 
         pki_message = null!;
         error = string.Empty;
@@ -725,10 +726,32 @@ public sealed class ScepClient {
             csr.Ekus.Add(eku);
         }
 
+        signer_key = request.Key;
+        if (Algorithms.KindOf(request.Key.AlgorithmOid) == AlgorithmKind.Signature) {
+            KeySpec rsa_spec;
+            string spec_error;
+            IScepKey transient_signer;
+            string gen_error;
+
+            // A PQ signature subject key cannot decrypt the SCEP response (RFC 8894 encrypts the
+            // CertRep to the requester's signing key). Use a transient RSA transport key; the issued
+            // certificate still carries the PQ subject key from the CSR.
+            if (!KeySpec.Parse("rsa:2048", out rsa_spec, out spec_error)) {
+                error = spec_error;
+                return ScepResult<EnrollOutcome>.Fail(ScepClientResult.InvalidArgument, error);
+            }
+            if (!Crypto.GenerateKey(rsa_spec, out transient_signer, out gen_error)) {
+                error = gen_error;
+                return ScepResult<EnrollOutcome>.Fail(ScepClientResult.ProviderError, gen_error);
+            }
+            signer_key = transient_signer;
+            Emit(TraceLevel.Opinion, "Enroll", "subject key is a PQ signature key; using a transient RSA transport key for the SCEP envelope (RFC 8894 requires the requester key to decrypt the CertRep)");
+        }
+
         pki_message = new PkiMessage {
             MessageType = MessageType.PkcsReq,
             InnerCsr = csr,
-            SignerKey = request.Key,
+            SignerKey = signer_key,
             RecipientCaCert = request.CaCertificate,
             DigestAlgorithmOid = request.DigestOid,
             ContentEncryptionAlgorithmOid = request.ContentEncryptionOid,

@@ -80,7 +80,19 @@ internal static class BcPkiMessage {
 
         cert_store = CollectionUtilities.CreateStore(new[] { signer_cert });
         signed_gen = new CmsSignedDataGenerator(Random);
-        signed_gen.AddSigner(signing_private_key, signer_cert, message.DigestAlgorithmOid, signed_attr_table, null);
+        if (signing_private_key is Org.BouncyCastle.Crypto.Parameters.MLDsaPrivateKeyParameters
+            || signing_private_key is Org.BouncyCastle.Crypto.Parameters.SlhDsaPrivateKeyParameters) {
+            // PQ outer signature (BC 2.6.1): the legacy AddSigner overloads can't sign with ML-DSA/SLH-DSA;
+            // use the SignerInfoGeneratorBuilder path. Digest is the draft baseline (SHA-512), picked by BC.
+            Org.BouncyCastle.Cms.SignerInfoGenerator pq_signer;
+
+            pq_signer = new Org.BouncyCastle.Cms.SignerInfoGeneratorBuilder()
+                .WithSignedAttributeGenerator(new Org.BouncyCastle.Cms.DefaultSignedAttributeTableGenerator(signed_attr_table))
+                .Build(new Org.BouncyCastle.Crypto.Operators.Asn1SignatureFactory(signer_key.AlgorithmOid, signing_private_key, Random), signer_cert);
+            signed_gen.AddSignerInfoGenerator(pq_signer);
+        } else {
+            signed_gen.AddSigner(signing_private_key, signer_cert, message.DigestAlgorithmOid, signed_attr_table, null);
+        }
         signed_gen.AddCertificates(cert_store);
 
         enveloped_content = new CmsProcessableByteArray(enveloped_bytes);

@@ -19,6 +19,8 @@ internal static class BcSelfSigned {
         cg.SetNotBefore(DateTime.UtcNow.AddMinutes(-5));
         cg.SetNotAfter(DateTime.UtcNow.AddDays(1));
         cg.SetPublicKey(key.KeyPair.Public);
-        return cg.Generate(new Asn1SignatureFactory("SHA256WITHRSA", key.KeyPair.Private));
+        // Sign with the key's own algorithm: RSA classically, ML-DSA/SLH-DSA by OID (BC 2.6.1).
+        return cg.Generate(new Asn1SignatureFactory(
+            BcPqKeys.IsPq(key) ? key.AlgorithmOid : "SHA256WITHRSA", key.KeyPair.Private));
     }
 }
