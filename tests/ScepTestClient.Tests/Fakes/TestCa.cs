@@ -34,6 +34,7 @@ public sealed class TestCa {
     public X509Certificate2? EncryptionCert { get; private set; }
     private AsymmetricCipherKeyPair? _encryption_key;
     private AsymmetricKeyParameter RecipientKey => _encryption_key?.Private ?? KeyPair.Private;
+    private string _ca_signature_algorithm = "SHA256WITHRSA";
 
     private TestCa(AsymmetricCipherKeyPair keyPair, Org.BouncyCastle.X509.X509Certificate cert) {
         KeyPair = keyPair;
@@ -63,12 +64,79 @@ public sealed class TestCa {
         return new TestCa(pair, cg.Generate(new Asn1SignatureFactory("SHA256WITHRSA", pair.Private)));
     }
 
+    // A CA whose signing key is the chosen algorithm (rsa/ec/ml-dsa), as a single dual-use cert.
+    // RSA carries keyEncipherment, EC carries keyAgreement (so it is also the envelope recipient),
+    // ML-DSA is signature-only (cannot be an encryption recipient).
+    public static TestCa Create(string ca_algo) {
+        AsymmetricCipherKeyPair pair;
+        string sig_alg;
+        int key_usage;
+        X509Name name;
+        X509V3CertificateGenerator cg;
+        TestCa ca;
+
+        pair = GenerateCaKeyPair(ca_algo, out sig_alg);
+        key_usage = ca_algo.ToLowerInvariant() switch {
+            "ec" => KeyUsage.DigitalSignature | KeyUsage.KeyAgreement | KeyUsage.KeyCertSign,
+            "rsa" => KeyUsage.DigitalSignature | KeyUsage.KeyEncipherment | KeyUsage.KeyCertSign,
+            _ => KeyUsage.DigitalSignature | KeyUsage.KeyCertSign,
+        };
+        name = new X509Name("CN=Test SCEP CA");
+        cg = new X509V3CertificateGenerator();
+        cg.SetSerialNumber(BigInteger.One);
+        cg.SetIssuerDN(name);
+        cg.SetSubjectDN(name);
+        cg.SetNotBefore(DateTime.UtcNow.AddDays(-1));
+        cg.SetNotAfter(DateTime.UtcNow.AddYears(5));
+        cg.SetPublicKey(pair.Public);
+        cg.AddExtension(X509Extensions.KeyUsage, true, new KeyUsage(key_usage));
+        ca = new TestCa(pair, cg.Generate(new Asn1SignatureFactory(sig_alg, pair.Private)));
+        ca._ca_signature_algorithm = sig_alg;
+        return ca;
+    }
+
+    // Generates the CA signing keypair for the chosen algorithm and reports the X.509 signature
+    // algorithm name/OID to use for issuing and CRLs.
+    private static AsymmetricCipherKeyPair GenerateCaKeyPair(string ca_algo, out string sig_alg) {
+        SecureRandom random;
+
+        random = new SecureRandom();
+        switch (ca_algo.ToLowerInvariant()) {
+            case "rsa": {
+                RsaKeyPairGenerator rsa_gen;
+
+                rsa_gen = new RsaKeyPairGenerator();
+                rsa_gen.Init(new KeyGenerationParameters(random, 2048));
+                sig_alg = "SHA256WITHRSA";
+                return rsa_gen.GenerateKeyPair();
+            }
+            case "ec": {
+                Org.BouncyCastle.Crypto.Generators.ECKeyPairGenerator ec_gen;
+
+                ec_gen = new Org.BouncyCastle.Crypto.Generators.ECKeyPairGenerator("ECDSA");
+                ec_gen.Init(new Org.BouncyCastle.Crypto.Parameters.ECKeyGenerationParameters(Org.BouncyCastle.Asn1.Sec.SecObjectIdentifiers.SecP256r1, random));
+                sig_alg = "SHA256WITHECDSA";
+                return ec_gen.GenerateKeyPair();
+            }
+            case "ml-dsa": {
+                Org.BouncyCastle.Crypto.Generators.MLDsaKeyPairGenerator mldsa_gen;
+
+                mldsa_gen = new Org.BouncyCastle.Crypto.Generators.MLDsaKeyPairGenerator();
+                mldsa_gen.Init(new Org.BouncyCastle.Crypto.Parameters.MLDsaKeyGenerationParameters(random, Org.BouncyCastle.Crypto.Parameters.MLDsaParameters.ml_dsa_65));
+                sig_alg = "2.16.840.1.101.3.4.3.18";
+                return mldsa_gen.GenerateKeyPair();
+            }
+            default:
+                throw new ArgumentException($"unsupported CA algorithm '{ca_algo}'");
+        }
+    }
+
     // Builds a CA with a SEPARATE RA encryption certificate (RSA): the CA/signing cert carries
     // digitalSignature+keyCertSign (no keyEncipherment), the RA cert carries keyEncipherment.
     // GetCACert then presents both, and requests must be encrypted to the RA cert.
-    public static TestCa CreateWithRaEncryption(string enc_algo = "rsa") {
-        RsaKeyPairGenerator ca_gen;
+    public static TestCa CreateWithRaEncryption(string enc_algo = "rsa", string ca_algo = "rsa") {
         AsymmetricCipherKeyPair ca_pair;
+        string ca_sig_alg;
         X509Name ca_name;
         X509V3CertificateGenerator ca_cg;
         TestCa ca;
@@ -76,9 +144,7 @@ public sealed class TestCa {
         int ra_key_usage;
         X509V3CertificateGenerator ra_cg;
 
-        ca_gen = new RsaKeyPairGenerator();
-        ca_gen.Init(new KeyGenerationParameters(new SecureRandom(), 2048));
-        ca_pair = ca_gen.GenerateKeyPair();
+        ca_pair = GenerateCaKeyPair(ca_algo, out ca_sig_alg);
         ca_name = new X509Name("CN=Test SCEP CA (split)");
         ca_cg = new X509V3CertificateGenerator();
         ca_cg.SetSerialNumber(BigInteger.One);
@@ -88,7 +154,8 @@ public sealed class TestCa {
         ca_cg.SetNotAfter(DateTime.UtcNow.AddYears(5));
         ca_cg.SetPublicKey(ca_pair.Public);
         ca_cg.AddExtension(X509Extensions.KeyUsage, true, new KeyUsage(KeyUsage.DigitalSignature | KeyUsage.KeyCertSign));
-        ca = new TestCa(ca_pair, ca_cg.Generate(new Asn1SignatureFactory("SHA256WITHRSA", ca_pair.Private)));
+        ca = new TestCa(ca_pair, ca_cg.Generate(new Asn1SignatureFactory(ca_sig_alg, ca_pair.Private)));
+        ca._ca_signature_algorithm = ca_sig_alg;
 
         ra_pair = GenerateRaKeyPair(enc_algo, out ra_key_usage);
         ra_cg = new X509V3CertificateGenerator();
@@ -101,7 +168,7 @@ public sealed class TestCa {
         ra_cg.AddExtension(X509Extensions.KeyUsage, true, new KeyUsage(ra_key_usage));
 
         ca._encryption_key = ra_pair;
-        ca.EncryptionCert = new X509Certificate2(ra_cg.Generate(new Asn1SignatureFactory("SHA256WITHRSA", ca_pair.Private)).GetEncoded());
+        ca.EncryptionCert = new X509Certificate2(ra_cg.Generate(new Asn1SignatureFactory(ca_sig_alg, ca_pair.Private)).GetEncoded());
         return ca;
     }
 
@@ -194,7 +261,7 @@ public sealed class TestCa {
         cg.SetPublicKey(subject_public_key);
 
         Org.BouncyCastle.X509.X509Certificate issued;
-        issued = cg.Generate(new Asn1SignatureFactory("SHA256WITHRSA", KeyPair.Private));
+        issued = cg.Generate(new Asn1SignatureFactory(_ca_signature_algorithm, KeyPair.Private));
         _issued_by_serial[issued.SerialNumber.ToString(16).ToUpperInvariant()] = issued;
         return issued;
     }
@@ -209,7 +276,7 @@ public sealed class TestCa {
         cg.SetNotBefore(DateTime.UtcNow.AddYears(-2));
         cg.SetNotAfter(DateTime.UtcNow.AddYears(-1));
         cg.SetPublicKey(subject_public_key);
-        return cg.Generate(new Asn1SignatureFactory("SHA256WITHRSA", KeyPair.Private));
+        return cg.Generate(new Asn1SignatureFactory(_ca_signature_algorithm, KeyPair.Private));
     }
 
     // Builds a SUCCESS CertRep: SignedData (signed by CA) whose content is EnvelopedData (to the recipient cert)
@@ -245,7 +312,7 @@ public sealed class TestCa {
         crl_gen.SetThisUpdate(DateTime.UtcNow.AddMinutes(-5));
         crl_gen.SetNextUpdate(DateTime.UtcNow.AddDays(7));
         crl_gen.AddCrlEntry(BigInteger.ValueOf(99), DateTime.UtcNow.AddMinutes(-1), Org.BouncyCastle.Asn1.X509.CrlReason.KeyCompromise);
-        return crl_gen.Generate(new Asn1SignatureFactory("SHA256WITHRSA", KeyPair.Private));
+        return crl_gen.Generate(new Asn1SignatureFactory(_ca_signature_algorithm, KeyPair.Private));
     }
 
     public byte[] BuildSuccessCrlRep(Org.BouncyCastle.X509.X509Crl crl, X509Certificate2 recipient_cert, string trans_id, byte[] recipient_nonce) {

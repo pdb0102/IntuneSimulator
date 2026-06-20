@@ -17,6 +17,8 @@ public sealed class EndpointMatrixTests {
     [InlineData("rsa")]
     [InlineData("rsa-split")]
     [InlineData("ec-encrypt")]
+    [InlineData("ec-dual")]
+    [InlineData("ecdsa-rsa")]
     public async Task Enroll_succeeds_against_supported_profile(string profile) {
         FakeScepServer server;
         ScepResult<EnrollOutcome> outcome;

@@ -46,6 +46,8 @@ public sealed class FakeScepServer : IAsyncDisposable {
             { "rsa", TestCa.Create() },
             { "rsa-split", TestCa.CreateWithRaEncryption("rsa") },
             { "ec-encrypt", TestCa.CreateWithRaEncryption("ec") },
+            { "ec-dual", TestCa.Create("ec") },
+            { "ecdsa-rsa", TestCa.CreateWithRaEncryption("rsa", "ec") },
             { "mlkem-encrypt", TestCa.CreateWithRaEncryption("ml-kem") },
             { "signing-only", TestCa.CreateSigningOnly() },
         };
