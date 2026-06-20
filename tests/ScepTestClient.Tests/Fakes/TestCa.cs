@@ -69,37 +69,80 @@ public sealed class TestCa {
     // of a degenerate PKCS#7 carrying the issued cert. Signed attrs: pkiStatus=0, messageType=3 (CertRep),
     // transId echoed, recipientNonce echoes the request senderNonce (pass any 16 bytes).
     public byte[] BuildSuccessCertRep(Org.BouncyCastle.X509.X509Certificate issued_cert, X509Certificate2 recipient_cert, string trans_id, byte[] recipient_nonce) {
-        // SCEP signed-attribute OIDs
-        const string OidMessageType = "2.16.840.1.113733.1.9.2";
-        const string OidPkiStatus = "2.16.840.1.113733.1.9.3";
-        const string OidTransId = "2.16.840.1.113733.1.9.7";
-        const string OidRecipientNonce = "2.16.840.1.113733.1.9.6";
-
-        // 1. Build degenerate PKCS#7 SignedData (certs-only) containing the issued cert
         CmsSignedDataGenerator degenerate_gen;
         IStore<Org.BouncyCastle.X509.X509Certificate> issued_cert_store;
-        CmsSignedData degenerate_signed_data;
         byte[] degenerate_bytes;
 
         issued_cert_store = CollectionUtilities.CreateStore(new[] { issued_cert });
         degenerate_gen = new CmsSignedDataGenerator();
         degenerate_gen.AddCertificates(issued_cert_store);
-        degenerate_signed_data = degenerate_gen.Generate(new CmsProcessableByteArray(System.Array.Empty<byte>()), false);
-        degenerate_bytes = degenerate_signed_data.GetEncoded();
+        degenerate_bytes = degenerate_gen.Generate(new CmsProcessableByteArray(System.Array.Empty<byte>()), false).GetEncoded();
+        return EnvelopeAndSign(degenerate_bytes, recipient_cert, trans_id, recipient_nonce, "3", "0");
+    }
 
-        // 2. Envelope the degenerate PKCS#7 to the recipient cert using AES-128-CBC
+    public Org.BouncyCastle.X509.X509Crl GenerateCrl() {
+        X509V2CrlGenerator crl_gen;
+
+        crl_gen = new X509V2CrlGenerator();
+        crl_gen.SetIssuerDN(Certificate.SubjectDN);
+        crl_gen.SetThisUpdate(DateTime.UtcNow.AddMinutes(-5));
+        crl_gen.SetNextUpdate(DateTime.UtcNow.AddDays(7));
+        crl_gen.AddCrlEntry(BigInteger.ValueOf(99), DateTime.UtcNow.AddMinutes(-1), Org.BouncyCastle.Asn1.X509.CrlReason.KeyCompromise);
+        return crl_gen.Generate(new Asn1SignatureFactory("SHA256WITHRSA", KeyPair.Private));
+    }
+
+    public byte[] BuildSuccessCrlRep(Org.BouncyCastle.X509.X509Crl crl, X509Certificate2 recipient_cert, string trans_id, byte[] recipient_nonce) {
+        CmsSignedDataGenerator degenerate_gen;
+        byte[] degenerate_bytes;
+
+        degenerate_gen = new CmsSignedDataGenerator();
+        degenerate_gen.AddCrl(crl);
+        degenerate_bytes = degenerate_gen.Generate(new CmsProcessableByteArray(System.Array.Empty<byte>()), false).GetEncoded();
+        return EnvelopeAndSign(degenerate_bytes, recipient_cert, trans_id, recipient_nonce, "3", "0");
+    }
+
+    public byte[] BuildFailureCertRep(X509Certificate2 recipient_cert, string trans_id, byte[] recipient_nonce, string fail_info) {
+        const string OidMessageType = "2.16.840.1.113733.1.9.2";
+        const string OidPkiStatus = "2.16.840.1.113733.1.9.3";
+        const string OidFailInfo = "2.16.840.1.113733.1.9.4";
+        const string OidTransId = "2.16.840.1.113733.1.9.7";
+        const string OidRecipientNonce = "2.16.840.1.113733.1.9.6";
+
+        CmsSignedDataGenerator degenerate_gen;
+        byte[] degenerate_bytes;
+        Dictionary<DerObjectIdentifier, object> attrs;
+        IStore<Org.BouncyCastle.X509.X509Certificate> ca_cert_store;
+        CmsSignedDataGenerator signed_gen;
+        CmsSignedData signed_data;
+
+        degenerate_gen = new CmsSignedDataGenerator();
+        degenerate_bytes = degenerate_gen.Generate(new CmsProcessableByteArray(System.Array.Empty<byte>()), false).GetEncoded();
+
+        attrs = new Dictionary<DerObjectIdentifier, object>();
+        attrs[new DerObjectIdentifier(OidMessageType)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(OidMessageType), new DerSet(new DerPrintableString("3")));
+        attrs[new DerObjectIdentifier(OidPkiStatus)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(OidPkiStatus), new DerSet(new DerPrintableString("2")));
+        attrs[new DerObjectIdentifier(OidFailInfo)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(OidFailInfo), new DerSet(new DerPrintableString(fail_info)));
+        attrs[new DerObjectIdentifier(OidTransId)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(OidTransId), new DerSet(new DerPrintableString(trans_id)));
+        attrs[new DerObjectIdentifier(OidRecipientNonce)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(OidRecipientNonce), new DerSet(new DerOctetString(recipient_nonce)));
+
+        ca_cert_store = CollectionUtilities.CreateStore(new[] { Certificate });
+        signed_gen = new CmsSignedDataGenerator(new SecureRandom());
+        signed_gen.AddSigner(KeyPair.Private, Certificate, CmsSignedGenerator.DigestSha256, new Org.BouncyCastle.Asn1.Cms.AttributeTable(attrs), null);
+        signed_gen.AddCertificates(ca_cert_store);
+        signed_data = signed_gen.Generate(new CmsProcessableByteArray(degenerate_bytes), true);
+        return signed_data.GetEncoded();
+    }
+
+    private byte[] EnvelopeAndSign(byte[] degenerate_bytes, X509Certificate2 recipient_cert, string trans_id, byte[] recipient_nonce, string message_type, string pki_status) {
+        const string OidMessageType = "2.16.840.1.113733.1.9.2";
+        const string OidPkiStatus = "2.16.840.1.113733.1.9.3";
+        const string OidTransId = "2.16.840.1.113733.1.9.7";
+        const string OidRecipientNonce = "2.16.840.1.113733.1.9.6";
+
         Org.BouncyCastle.X509.X509Certificate recipient_bc_cert;
         CmsEnvelopedDataGenerator enveloped_gen;
         CmsEnvelopedData enveloped;
         byte[] enveloped_bytes;
-
-        recipient_bc_cert = new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificate(recipient_cert.RawData);
-        enveloped_gen = new CmsEnvelopedDataGenerator(new SecureRandom());
-        enveloped_gen.AddKeyTransRecipient(recipient_bc_cert);
-        enveloped = enveloped_gen.Generate(new CmsProcessableByteArray(degenerate_bytes), CmsEnvelopedGenerator.Aes128Cbc);
-        enveloped_bytes = enveloped.GetEncoded();
-
-        // 3. Sign the enveloped data with CA key, adding SCEP signed attributes
         Dictionary<DerObjectIdentifier, object> signed_attrs_dict;
         Org.BouncyCastle.Asn1.Cms.AttributeTable signed_attr_table;
         IStore<Org.BouncyCastle.X509.X509Certificate> ca_cert_store;
@@ -107,41 +150,26 @@ public sealed class TestCa {
         CmsProcessable enveloped_content;
         CmsSignedData signed_data;
 
+        recipient_bc_cert = new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificate(recipient_cert.RawData);
+        enveloped_gen = new CmsEnvelopedDataGenerator(new SecureRandom());
+        enveloped_gen.AddKeyTransRecipient(recipient_bc_cert);
+        enveloped = enveloped_gen.Generate(new CmsProcessableByteArray(degenerate_bytes), CmsEnvelopedGenerator.Aes128Cbc);
+        enveloped_bytes = enveloped.GetEncoded();
+
         signed_attrs_dict = new Dictionary<DerObjectIdentifier, object>();
-        signed_attrs_dict[new DerObjectIdentifier(OidMessageType)] =
-            new Org.BouncyCastle.Asn1.Cms.Attribute(
-                new DerObjectIdentifier(OidMessageType),
-                new DerSet(new DerPrintableString("3")));
-        signed_attrs_dict[new DerObjectIdentifier(OidPkiStatus)] =
-            new Org.BouncyCastle.Asn1.Cms.Attribute(
-                new DerObjectIdentifier(OidPkiStatus),
-                new DerSet(new DerPrintableString("0")));
-        signed_attrs_dict[new DerObjectIdentifier(OidTransId)] =
-            new Org.BouncyCastle.Asn1.Cms.Attribute(
-                new DerObjectIdentifier(OidTransId),
-                new DerSet(new DerPrintableString(trans_id)));
-        signed_attrs_dict[new DerObjectIdentifier(OidRecipientNonce)] =
-            new Org.BouncyCastle.Asn1.Cms.Attribute(
-                new DerObjectIdentifier(OidRecipientNonce),
-                new DerSet(new DerOctetString(recipient_nonce)));
+        signed_attrs_dict[new DerObjectIdentifier(OidMessageType)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(OidMessageType), new DerSet(new DerPrintableString(message_type)));
+        signed_attrs_dict[new DerObjectIdentifier(OidPkiStatus)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(OidPkiStatus), new DerSet(new DerPrintableString(pki_status)));
+        signed_attrs_dict[new DerObjectIdentifier(OidTransId)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(OidTransId), new DerSet(new DerPrintableString(trans_id)));
+        signed_attrs_dict[new DerObjectIdentifier(OidRecipientNonce)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(OidRecipientNonce), new DerSet(new DerOctetString(recipient_nonce)));
         signed_attr_table = new Org.BouncyCastle.Asn1.Cms.AttributeTable(signed_attrs_dict);
 
         ca_cert_store = CollectionUtilities.CreateStore(new[] { Certificate });
         signed_gen = new CmsSignedDataGenerator(new SecureRandom());
-        signed_gen.AddSigner(
-            KeyPair.Private,
-            Certificate,
-            CmsSignedGenerator.DigestSha256,
-            signed_attr_table,
-            null);
+        signed_gen.AddSigner(KeyPair.Private, Certificate, CmsSignedGenerator.DigestSha256, signed_attr_table, null);
         signed_gen.AddCertificates(ca_cert_store);
 
         enveloped_content = new CmsProcessableByteArray(enveloped_bytes);
-        signed_data = signed_gen.Generate(
-            Org.BouncyCastle.Asn1.Cms.CmsObjectIdentifiers.EnvelopedData.Id,
-            enveloped_content,
-            true);
-
+        signed_data = signed_gen.Generate(Org.BouncyCastle.Asn1.Cms.CmsObjectIdentifiers.EnvelopedData.Id, enveloped_content, true);
         return signed_data.GetEncoded();
     }
 

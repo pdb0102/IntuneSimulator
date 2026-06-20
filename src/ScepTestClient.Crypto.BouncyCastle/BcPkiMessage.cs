@@ -171,6 +171,7 @@ internal static class BcPkiMessage {
             result.DecryptedContent = decrypted_bytes;
             issued_certs = ExtractCertsFromDegeneratePkcs7(decrypted_bytes);
             result.IssuedCerts = issued_certs.AsReadOnly();
+            result.IssuedCrls = ExtractCrlsFromDegeneratePkcs7(decrypted_bytes);
         }
 
         return result;
@@ -206,5 +207,20 @@ internal static class BcPkiMessage {
         }
 
         return certs;
+    }
+
+    private static IReadOnlyList<byte[]> ExtractCrlsFromDegeneratePkcs7(byte[] der) {
+        CmsSignedData signed_data;
+        IStore<Org.BouncyCastle.X509.X509Crl> crl_store;
+        List<byte[]> crls;
+
+        crls = new List<byte[]>();
+        signed_data = new CmsSignedData(der);
+        crl_store = signed_data.GetCrls();
+        foreach (Org.BouncyCastle.X509.X509Crl crl in crl_store.EnumerateMatches(null)) {
+            crls.Add(crl.GetEncoded());
+        }
+
+        return crls;
     }
 }
