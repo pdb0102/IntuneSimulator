@@ -293,7 +293,64 @@ public sealed class TestCa {
         return attr is null ? string.Empty : ((DerPrintableString)attr.AttrValues[0]).GetString();
     }
 
-    public byte[] HandleGetCert(byte[] der) => throw new System.NotSupportedException("filled in Task 6");
-    public byte[] HandleGetCrl(byte[] der) => throw new System.NotSupportedException("filled in Task 6");
+    public byte[] HandleGetCert(byte[] der) {
+        X509Certificate2 requester_cert;
+        string trans_id;
+        byte[] nonce;
+        byte[] inner;
+        Org.BouncyCastle.Asn1.Cms.IssuerAndSerialNumber ias;
+        string serial_key;
+
+        DecodeRequest(der, out requester_cert, out trans_id, out nonce, out inner);
+        ias = Org.BouncyCastle.Asn1.Cms.IssuerAndSerialNumber.GetInstance(Asn1Object.FromByteArray(inner));
+        serial_key = ias.SerialNumber.Value.ToString(16).ToUpperInvariant();
+
+        if (!_issued_by_serial.TryGetValue(serial_key, out Org.BouncyCastle.X509.X509Certificate? found)) {
+            return BuildFailureCertRep(requester_cert, trans_id, nonce, "4");
+        }
+        return BuildSuccessCertRep(found, requester_cert, trans_id, nonce);
+    }
+
+    public byte[] HandleGetCrl(byte[] der) {
+        X509Certificate2 requester_cert;
+        string trans_id;
+        byte[] nonce;
+        byte[] inner;
+
+        DecodeRequest(der, out requester_cert, out trans_id, out nonce, out inner);
+        return BuildSuccessCrlRep(GenerateCrl(), requester_cert, trans_id, nonce);
+    }
+
+    private void DecodeRequest(byte[] der, out X509Certificate2 requester_cert, out string trans_id, out byte[] sender_nonce, out byte[] inner_payload) {
+        const string OidTransId = "2.16.840.1.113733.1.9.7";
+        const string OidSenderNonce = "2.16.840.1.113733.1.9.5";
+        CmsSignedData signed;
+        SignerInformation signer;
+        Org.BouncyCastle.X509.X509Certificate signer_bc_cert;
+        MemoryStream env_stream;
+        CmsEnvelopedData env;
+        Org.BouncyCastle.Asn1.Cms.AttributeTable attrs;
+
+        signed = new CmsSignedData(der);
+        signer = signed.GetSignerInfos().GetSigners().Cast<SignerInformation>().First();
+        signer_bc_cert = signed.GetCertificates().EnumerateMatches(signer.SignerID).Cast<Org.BouncyCastle.X509.X509Certificate>().First();
+        requester_cert = new X509Certificate2(signer_bc_cert.GetEncoded());
+
+        env_stream = new MemoryStream();
+        signed.SignedContent.Write(env_stream);
+        env = new CmsEnvelopedData(env_stream.ToArray());
+        inner_payload = env.GetRecipientInfos().GetRecipients().Cast<RecipientInformation>().First().GetContent(KeyPair.Private);
+
+        trans_id = "tx";
+        sender_nonce = new byte[16];
+        attrs = signer.SignedAttributes;
+        if (attrs is not null) {
+            Org.BouncyCastle.Asn1.Cms.Attribute? tx_a = attrs[new DerObjectIdentifier(OidTransId)];
+            Org.BouncyCastle.Asn1.Cms.Attribute? n_a = attrs[new DerObjectIdentifier(OidSenderNonce)];
+            if (tx_a is not null) { trans_id = ((DerPrintableString)tx_a.AttrValues[0]).GetString(); }
+            if (n_a is not null) { sender_nonce = ((Asn1OctetString)n_a.AttrValues[0]).GetOctets(); }
+        }
+    }
+
     public byte[] HandlePoll(byte[] der) => throw new System.NotSupportedException("filled in Task 7");
 }

@@ -13,6 +13,7 @@ namespace ScepTestClient.Core;
 
 public sealed class ScepClient {
     private readonly ScepHttpTransport _transport;
+    private X509Certificate2? _ca_cert_cache;
 
     public IScepCrypto Crypto { get; }
     public ServerConfig Server { get; }
@@ -263,6 +264,156 @@ public sealed class ScepClient {
         }
 
         return builder.Build(out pki_message, out subject_key, out error);
+    }
+
+    // -------------------------------------------------------------------------
+    // GetCert / GetCrl
+    // -------------------------------------------------------------------------
+
+    public ScepResult<X509Certificate2> GetCert(string issuer_dn, string serial_hex) {
+        PkiMessage message;
+        IScepKey signer_key;
+        string error;
+
+        if (!BuildIssuerSerialMessage(MessageType.GetCert, issuer_dn, serial_hex, out message, out signer_key, out error)) {
+            return ScepResult<X509Certificate2>.Fail(ScepClientResult.InvalidArgument, error);
+        }
+        return ProjectCert(SendDecodedSync(message));
+    }
+
+    public async Task<ScepResult<X509Certificate2>> GetCertAsync(string issuer_dn, string serial_hex) {
+        PkiMessage message;
+        IScepKey signer_key;
+        string error;
+
+        if (!BuildIssuerSerialMessage(MessageType.GetCert, issuer_dn, serial_hex, out message, out signer_key, out error)) {
+            return ScepResult<X509Certificate2>.Fail(ScepClientResult.InvalidArgument, error);
+        }
+        return ProjectCert(await SendDecodedAsync(message).ConfigureAwait(false));
+    }
+
+    public ScepResult<byte[]> GetCrl(string issuer_dn, string serial_hex) {
+        PkiMessage message;
+        IScepKey signer_key;
+        string error;
+
+        if (!BuildIssuerSerialMessage(MessageType.GetCrl, issuer_dn, serial_hex, out message, out signer_key, out error)) {
+            return ScepResult<byte[]>.Fail(ScepClientResult.InvalidArgument, error);
+        }
+        return ProjectCrl(SendDecodedSync(message));
+    }
+
+    public async Task<ScepResult<byte[]>> GetCrlAsync(string issuer_dn, string serial_hex) {
+        PkiMessage message;
+        IScepKey signer_key;
+        string error;
+
+        if (!BuildIssuerSerialMessage(MessageType.GetCrl, issuer_dn, serial_hex, out message, out signer_key, out error)) {
+            return ScepResult<byte[]>.Fail(ScepClientResult.InvalidArgument, error);
+        }
+        return ProjectCrl(await SendDecodedAsync(message).ConfigureAwait(false));
+    }
+
+    private bool BuildIssuerSerialMessage(MessageType type, string issuer_dn, string serial_hex, out PkiMessage message, out IScepKey signer_key, out string error) {
+        X509Certificate2 ca_cert;
+
+        message = null!;
+        signer_key = null!;
+
+        if (!ResolveCaCert(out ca_cert, out error)) {
+            return false;
+        }
+
+        return ScepRequestBuilder.For(Crypto)
+            .CaCertificate(ca_cert)
+            .MessageType(type)
+            .KeySpec("rsa:2048")
+            .IssuerAndSerial(issuer_dn, serial_hex)
+            .Build(out message, out signer_key, out error);
+    }
+
+    // Sends a built message and returns the FULLY DECODED PkiMessage (cert + CRL list), not just an outcome.
+    private ScepResult<PkiMessage> SendDecodedSync(PkiMessage message) {
+        byte[] der;
+        string encode_error;
+        ScepResult<byte[]> raw;
+        PkiMessage decoded;
+        string decode_error;
+
+        if (!message.Encode(Crypto, out der, out encode_error)) {
+            return ScepResult<PkiMessage>.Fail(ScepClientResult.CryptoError, encode_error);
+        }
+        raw = Server.PreferPost ? _transport.Post("PKIOperation", der) : _transport.Get("PKIOperation", Convert.ToBase64String(der));
+        if (!raw.IsOk) {
+            return ScepResult<PkiMessage>.Fail(raw.Status, raw.Error);
+        }
+        if (!PkiMessage.Decode(Crypto, raw.Value, message.SignerKey!, CodecOptions.LenientParsing, out decoded, out decode_error)) {
+            return ScepResult<PkiMessage>.Fail(ScepClientResult.CryptoError, decode_error);
+        }
+        return ScepResult<PkiMessage>.Ok(decoded);
+    }
+
+    private async Task<ScepResult<PkiMessage>> SendDecodedAsync(PkiMessage message) {
+        byte[] der;
+        string encode_error;
+        ScepResult<byte[]> raw;
+        PkiMessage decoded;
+        string decode_error;
+
+        if (!message.Encode(Crypto, out der, out encode_error)) {
+            return ScepResult<PkiMessage>.Fail(ScepClientResult.CryptoError, encode_error);
+        }
+        raw = Server.PreferPost
+            ? await _transport.PostAsync("PKIOperation", der).ConfigureAwait(false)
+            : await _transport.GetAsync("PKIOperation", Convert.ToBase64String(der)).ConfigureAwait(false);
+        if (!raw.IsOk) {
+            return ScepResult<PkiMessage>.Fail(raw.Status, raw.Error);
+        }
+        if (!PkiMessage.Decode(Crypto, raw.Value, message.SignerKey!, CodecOptions.LenientParsing, out decoded, out decode_error)) {
+            return ScepResult<PkiMessage>.Fail(ScepClientResult.CryptoError, decode_error);
+        }
+        return ScepResult<PkiMessage>.Ok(decoded);
+    }
+
+    private static ScepResult<X509Certificate2> ProjectCert(ScepResult<PkiMessage> sent) {
+        if (!sent.IsOk) {
+            return ScepResult<X509Certificate2>.Fail(sent.Status, sent.Error);
+        }
+        if (sent.Value.PkiStatus != PkiStatus.Success || sent.Value.IssuedCerts.Count == 0) {
+            return ScepResult<X509Certificate2>.Fail(ScepClientResult.ServerFailure, $"no certificate (pkiStatus {sent.Value.PkiStatus}, failInfo {sent.Value.FailInfo})");
+        }
+        return ScepResult<X509Certificate2>.Ok(sent.Value.IssuedCerts[0]);
+    }
+
+    private static ScepResult<byte[]> ProjectCrl(ScepResult<PkiMessage> sent) {
+        if (!sent.IsOk) {
+            return ScepResult<byte[]>.Fail(sent.Status, sent.Error);
+        }
+        if (sent.Value.IssuedCrls.Count == 0) {
+            return ScepResult<byte[]>.Fail(ScepClientResult.ServerFailure, $"no CRL (pkiStatus {sent.Value.PkiStatus}, failInfo {sent.Value.FailInfo})");
+        }
+        return ScepResult<byte[]>.Ok(sent.Value.IssuedCrls[0]);
+    }
+
+    private bool ResolveCaCert(out X509Certificate2 ca_cert, out string error) {
+        ScepResult<IReadOnlyList<X509Certificate2>> ca_result;
+
+        ca_cert = null!;
+        error = string.Empty;
+
+        if (_ca_cert_cache is not null) {
+            ca_cert = _ca_cert_cache;
+            return true;
+        }
+
+        ca_result = GetCaCert();
+        if (!ca_result.IsOk || ca_result.Value.Count == 0) {
+            error = ca_result.IsOk ? "server returned no CA certificate" : ca_result.Error;
+            return false;
+        }
+        _ca_cert_cache = ca_result.Value[0];
+        ca_cert = _ca_cert_cache;
+        return true;
     }
 
     // -------------------------------------------------------------------------
