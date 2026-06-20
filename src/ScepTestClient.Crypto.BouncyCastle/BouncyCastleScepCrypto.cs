@@ -161,6 +161,32 @@ public sealed class BouncyCastleScepCrypto : IScepCrypto {
         }
     }
 
+    public bool ImportPrivateKeyPkcs8(byte[] der, out IScepKey key, out string error) {
+        Org.BouncyCastle.Crypto.AsymmetricKeyParameter priv;
+        Org.BouncyCastle.Crypto.Parameters.RsaPrivateCrtKeyParameters rsa_priv;
+        Org.BouncyCastle.Crypto.Parameters.RsaKeyParameters pub;
+        Org.BouncyCastle.Crypto.AsymmetricCipherKeyPair pair;
+
+        key = null!;
+        error = string.Empty;
+
+        try {
+            priv = Org.BouncyCastle.Security.PrivateKeyFactory.CreateKey(der);
+            if (priv is not Org.BouncyCastle.Crypto.Parameters.RsaPrivateCrtKeyParameters crt) {
+                error = "only RSA PKCS#8 keys are supported by this provider";
+                return false;
+            }
+            rsa_priv = crt;
+            pub = new Org.BouncyCastle.Crypto.Parameters.RsaKeyParameters(false, rsa_priv.Modulus, rsa_priv.PublicExponent);
+            pair = new Org.BouncyCastle.Crypto.AsymmetricCipherKeyPair(pub, priv);
+            key = new BcKey(pair, BcAlgorithms.Rsa, rsa_priv.Modulus.BitLength);
+            return true;
+        } catch (System.Exception ex) {
+            error = $"ImportPrivateKeyPkcs8 failed: {ex.Message}";
+            return false;
+        }
+    }
+
     public bool ParseCaCertificates(byte[] der, out IReadOnlyList<X509Certificate2> certs, out string error) {
         List<X509Certificate2> result;
 
