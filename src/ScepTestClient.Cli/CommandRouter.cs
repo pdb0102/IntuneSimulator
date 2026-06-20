@@ -129,7 +129,7 @@ public static class CommandRouter {
         server_id = args[2];
         if (!BuildClient(server_id, data_root, output, out client, out stored)) { return 1; }
         caps = client.GetCaCaps().Value ?? ScepCapabilities.Parse(string.Empty);
-        lines = ScepTestClient.Core.Testing.ServerSuggest.For(server_id, caps);
+        lines = ScepTestClient.Core.Testing.ServerSuggest.For(server_id, caps, client.Crypto.Capabilities);
         foreach (string line in lines) { output.WriteLine(line); }
 
         config = ClientConfig.Load(data_root);
@@ -141,6 +141,9 @@ public static class CommandRouter {
         if (caps.Aes) { output.WriteLine($"posture: AES-128-CBC  {ScepTestClient.Core.Testing.SecurityOpinion.ClassifyCipher("AES-128-CBC")}"); }
         if (caps.Des3) { output.WriteLine($"posture: DES-EDE3-CBC  {ScepTestClient.Core.Testing.SecurityOpinion.ClassifyCipher("DES-EDE3-CBC")}"); }
         output.WriteLine($"posture: RSA-{thresholds.MinRsaKeyBits}  {ScepTestClient.Core.Testing.SecurityOpinion.ClassifyRsa(thresholds.MinRsaKeyBits, thresholds)}");
+        if (client.Crypto.Capabilities.PqTiers.TierA) {
+            output.WriteLine($"posture: ML-DSA-65  {ScepTestClient.Core.Testing.SecurityOpinion.ClassifySignature("ML-DSA-65")}");
+        }
         return 0;
     }
 
