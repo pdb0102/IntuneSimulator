@@ -64,43 +64,40 @@ public sealed class BouncyCastleScepCrypto : IScepCrypto {
     }
     public bool EncodePkiMessage(PkiMessage message, FaultDirectives? faults, out byte[] der, out string error) {
         // faults: Phase-1 no-op stub; fault injection is wired up in Phase 3.
-        BcKey signer_key;
         byte[] csr_der;
 
         der = System.Array.Empty<byte>();
         error = string.Empty;
 
-        if (message.MessageType != MessageType.PkcsReq) {
-            error = $"unsupported message type: {message.MessageType}";
-            return false;
-        }
-
-        if (message.SignerKey is not BcKey bc_signer_key) {
+        if (message.SignerKey is not BcKey signer_key) {
             error = "SignerKey was not produced by this provider";
             return false;
         }
 
-        if (message.InnerCsr == null) {
-            error = "InnerCsr must be set for PKCSReq";
-            return false;
-        }
-
         if (message.RecipientCaCert == null) {
-            error = "RecipientCaCert must be set for PKCSReq";
-            return false;
-        }
-
-        signer_key = bc_signer_key;
-
-        if (!EncodeCsr(message.InnerCsr, out csr_der, out error)) {
+            error = "RecipientCaCert must be set";
             return false;
         }
 
         try {
-            der = BcPkiMessage.EncodePkcsReq(message, csr_der, signer_key);
-            return true;
+            switch (message.MessageType) {
+                case MessageType.PkcsReq:
+                case MessageType.RenewalReq:
+                    if (message.InnerCsr == null) {
+                        error = $"InnerCsr must be set for {message.MessageType}";
+                        return false;
+                    }
+                    if (!EncodeCsr(message.InnerCsr, out csr_der, out error)) {
+                        return false;
+                    }
+                    der = BcPkiMessage.EncodePkiOperation(message, csr_der, signer_key, ScepAttributes.NumberFor(message.MessageType));
+                    return true;
+                default:
+                    error = $"unsupported message type: {message.MessageType}";
+                    return false;
+            }
         } catch (System.Exception ex) {
-            error = $"PKCSReq encode failed: {ex.Message}";
+            error = $"{message.MessageType} encode failed: {ex.Message}";
             return false;
         }
     }

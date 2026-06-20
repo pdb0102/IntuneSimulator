@@ -13,7 +13,7 @@ namespace ScepTestClient.Crypto.BouncyCastle;
 internal static class BcPkiMessage {
     private static readonly SecureRandom Random = new SecureRandom();
 
-    public static byte[] EncodePkcsReq(PkiMessage message, byte[] csr_der, BcKey signer_key) {
+    public static byte[] EncodePkiOperation(PkiMessage message, byte[] inner_payload_der, BcKey signer_key, string message_type_number) {
         CmsEnvelopedDataGenerator enveloped_gen;
         CmsEnvelopedData enveloped;
         CmsProcessable enveloped_content;
@@ -25,25 +25,19 @@ internal static class BcPkiMessage {
         IStore<Org.BouncyCastle.X509.X509Certificate> cert_store;
         string trans_id;
         byte[] sender_nonce;
-        byte[] recipient_cert_der;
         Org.BouncyCastle.X509.X509Certificate recipient_bc_cert;
 
-        // --- 1. Envelope the CSR DER to the CA recipient ---
-        recipient_cert_der = message.RecipientCaCert!.RawData;
-        recipient_bc_cert = new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificate(recipient_cert_der);
-
+        recipient_bc_cert = new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificate(message.RecipientCaCert!.RawData);
         enveloped_gen = new CmsEnvelopedDataGenerator(Random);
         enveloped_gen.AddKeyTransRecipient(recipient_bc_cert);
-        enveloped = enveloped_gen.Generate(new CmsProcessableByteArray(csr_der), message.ContentEncryptionAlgorithmOid);
+        enveloped = enveloped_gen.Generate(new CmsProcessableByteArray(inner_payload_der), message.ContentEncryptionAlgorithmOid);
 
-        // --- 2. Determine signer cert ---
         if (message.SignerCert != null) {
             signer_cert = new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificate(message.SignerCert.RawData);
         } else {
             signer_cert = BcSelfSigned.ForKey(signer_key, "CN=SCEP-Client");
         }
 
-        // --- 3. Build SCEP signed attributes ---
         trans_id = message.TransactionId ?? Guid.NewGuid().ToString("N");
         message.TransactionId = trans_id;
 
@@ -51,12 +45,11 @@ internal static class BcPkiMessage {
         Random.NextBytes(sender_nonce);
 
         signed_attrs = new Dictionary<DerObjectIdentifier, object>();
-        signed_attrs[new DerObjectIdentifier(ScepAttributes.MessageType)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(ScepAttributes.MessageType), new DerSet(new DerPrintableString("19")));
+        signed_attrs[new DerObjectIdentifier(ScepAttributes.MessageType)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(ScepAttributes.MessageType), new DerSet(new DerPrintableString(message_type_number)));
         signed_attrs[new DerObjectIdentifier(ScepAttributes.TransId)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(ScepAttributes.TransId), new DerSet(new DerPrintableString(trans_id)));
         signed_attrs[new DerObjectIdentifier(ScepAttributes.SenderNonce)] = new Org.BouncyCastle.Asn1.Cms.Attribute(new DerObjectIdentifier(ScepAttributes.SenderNonce), new DerSet(new DerOctetString(sender_nonce)));
         signed_attr_table = new AttributeTable(signed_attrs);
 
-        // --- 4. Sign the enveloped data ---
         cert_store = CollectionUtilities.CreateStore(new[] { signer_cert });
         signed_gen = new CmsSignedDataGenerator(Random);
         signed_gen.AddSigner(signer_key.KeyPair.Private, signer_cert, message.DigestAlgorithmOid, signed_attr_table, null);
