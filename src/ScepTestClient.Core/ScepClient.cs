@@ -175,7 +175,7 @@ public sealed class ScepClient {
             return build_result;
         }
 
-        return SendEnrollSync(request, pki_message);
+        return SendPkiOperationSync(pki_message, request.Key);
     }
 
     public async Task<ScepResult<EnrollOutcome>> EnrollAsync(EnrollRequest request) {
@@ -190,7 +190,79 @@ public sealed class ScepClient {
             return build_result;
         }
 
-        return await SendEnrollAsync(request, pki_message).ConfigureAwait(false);
+        return await SendPkiOperationAsync(pki_message, request.Key).ConfigureAwait(false);
+    }
+
+    // -------------------------------------------------------------------------
+    // Renew
+    // -------------------------------------------------------------------------
+
+    public ScepResult<EnrollOutcome> Renew(RenewRequest request) {
+        PkiMessage pki_message;
+        IScepKey subject_key;
+        string build_error;
+
+        Emit(TraceLevel.Info, "Renew", $"renewing '{request.Subject}' via {request.Variant}");
+        if (!BuildRenewMessage(request, out pki_message, out subject_key, out build_error)) {
+            return ScepResult<EnrollOutcome>.Fail(ScepClientResult.InvalidArgument, build_error);
+        }
+        return SendPkiOperationSync(pki_message, subject_key);
+    }
+
+    public async Task<ScepResult<EnrollOutcome>> RenewAsync(RenewRequest request) {
+        PkiMessage pki_message;
+        IScepKey subject_key;
+        string build_error;
+
+        Emit(TraceLevel.Info, "Renew", $"renewing '{request.Subject}' via {request.Variant}");
+        if (!BuildRenewMessage(request, out pki_message, out subject_key, out build_error)) {
+            return ScepResult<EnrollOutcome>.Fail(ScepClientResult.InvalidArgument, build_error);
+        }
+        return await SendPkiOperationAsync(pki_message, subject_key).ConfigureAwait(false);
+    }
+
+    private bool BuildRenewMessage(RenewRequest request, out PkiMessage pki_message, out IScepKey subject_key, out string error) {
+        ScepRequestBuilder builder;
+        bool reenroll;
+
+        pki_message = null!;
+        subject_key = null!;
+        error = string.Empty;
+
+        if (request.CaCertificate is null) {
+            error = "RenewRequest.CaCertificate must be set";
+            return false;
+        }
+
+        reenroll = request.Variant == RenewalVariant.ReenrollSameSubject;
+
+        builder = ScepRequestBuilder.For(Crypto)
+            .CaCertificate(request.CaCertificate)
+            .MessageType(reenroll || request.Variant == RenewalVariant.RenewalShapedPkcsReq ? MessageType.PkcsReq : MessageType.RenewalReq)
+            .Subject(request.Subject)
+            .Digest(request.DigestOid)
+            .Cipher(request.ContentEncryptionOid);
+
+        foreach (string dns in request.DnsNames) { builder.SanDns(dns); }
+        foreach (string upn in request.Upns) { builder.Upn(upn); }
+        foreach (string eku in request.Ekus) { builder.Eku(eku); }
+        if (request.Sid is not null) { builder.Sid(request.Sid); }
+        if (request.ChallengePassword is not null) { builder.Challenge(request.ChallengePassword); }
+
+        // Variant 4 (SameKey) reuses the existing key for the inner CSR; the rest generate a fresh one.
+        if (request.Variant == RenewalVariant.SameKey) {
+            builder.SubjectKey(request.ExistingKey);
+        } else {
+            builder.KeySpec(request.KeySpecText);
+        }
+
+        // The naive re-enroll signs with a self-signed cert over a new key; all other variants
+        // sign with the existing cert + key.
+        if (!reenroll) {
+            builder.SignerCertificate(request.ExistingCertificate).SignerKey(request.ExistingKey);
+        }
+
+        return builder.Build(out pki_message, out subject_key, out error);
     }
 
     // -------------------------------------------------------------------------
@@ -307,7 +379,7 @@ public sealed class ScepClient {
         return ScepResult<EnrollOutcome>.Ok(null!);
     }
 
-    private ScepResult<EnrollOutcome> SendEnrollSync(EnrollRequest request, PkiMessage pki_message) {
+    private ScepResult<EnrollOutcome> SendPkiOperationSync(PkiMessage pki_message, IScepKey subject_key) {
         byte[] der;
         string encode_error;
         ScepResult<byte[]> raw;
@@ -321,23 +393,21 @@ public sealed class ScepClient {
         }
 
         sw = Stopwatch.StartNew();
-
         if (Server.PreferPost) {
             raw = _transport.Post("PKIOperation", der);
         } else {
             raw = _transport.Get("PKIOperation", Convert.ToBase64String(der));
         }
-
         sw.Stop();
 
         if (!raw.IsOk) {
             return ScepResult<EnrollOutcome>.Fail(raw.Status, raw.Error);
         }
 
-        return DecodeEnrollResponse(raw.Value, request.Key, trans_id, sw.Elapsed);
+        return DecodeResponse(raw.Value, pki_message.SignerKey!, subject_key, trans_id, sw.Elapsed);
     }
 
-    private async Task<ScepResult<EnrollOutcome>> SendEnrollAsync(EnrollRequest request, PkiMessage pki_message) {
+    private async Task<ScepResult<EnrollOutcome>> SendPkiOperationAsync(PkiMessage pki_message, IScepKey subject_key) {
         byte[] der;
         string encode_error;
         ScepResult<byte[]> raw;
@@ -351,34 +421,33 @@ public sealed class ScepClient {
         }
 
         sw = Stopwatch.StartNew();
-
         if (Server.PreferPost) {
             raw = await _transport.PostAsync("PKIOperation", der).ConfigureAwait(false);
         } else {
             raw = await _transport.GetAsync("PKIOperation", Convert.ToBase64String(der)).ConfigureAwait(false);
         }
-
         sw.Stop();
 
         if (!raw.IsOk) {
             return ScepResult<EnrollOutcome>.Fail(raw.Status, raw.Error);
         }
 
-        return DecodeEnrollResponse(raw.Value, request.Key, trans_id, sw.Elapsed);
+        return DecodeResponse(raw.Value, pki_message.SignerKey!, subject_key, trans_id, sw.Elapsed);
     }
 
-    private ScepResult<EnrollOutcome> DecodeEnrollResponse(byte[] responseBytes, IScepKey recipientKey, string trans_id, TimeSpan elapsed) {
+    private ScepResult<EnrollOutcome> DecodeResponse(byte[] response_bytes, IScepKey recipient_key, IScepKey subject_key, string trans_id, TimeSpan elapsed) {
         PkiMessage decoded;
         string decode_error;
         ScepClientResult mapped_status;
         X509Certificate2? cert;
+        EnrollOutcome outcome;
 
-        if (!PkiMessage.Decode(Crypto, responseBytes, recipientKey, CodecOptions.LenientParsing, out decoded, out decode_error)) {
+        if (!PkiMessage.Decode(Crypto, response_bytes, recipient_key, CodecOptions.LenientParsing, out decoded, out decode_error)) {
             return ScepResult<EnrollOutcome>.Fail(ScepClientResult.CryptoError, decode_error);
         }
 
         foreach (ConformanceNote note in decoded.ConformanceNotes) {
-            Emit(TraceLevel.Opinion, "Enroll", $"conformance: [{note.Severity}] {note.What} ({note.Where}) {note.RfcReference}");
+            Emit(TraceLevel.Opinion, "PkiOperation", $"conformance: [{note.Severity}] {note.What} ({note.Where}) {note.RfcReference}");
         }
 
         switch (decoded.PkiStatus) {
@@ -395,12 +464,12 @@ public sealed class ScepClient {
 
         cert = decoded.IssuedCerts.Count > 0 ? decoded.IssuedCerts[0] : null;
 
-        EnrollOutcome outcome;
         outcome = new EnrollOutcome {
             Status = mapped_status,
             PkiStatus = decoded.PkiStatus,
             FailInfo = decoded.FailInfo,
             Certificate = cert,
+            SubjectKey = subject_key,
             TransactionId = trans_id,
             Elapsed = elapsed,
         };
@@ -409,7 +478,7 @@ public sealed class ScepClient {
             return ScepResult<EnrollOutcome>.Ok(outcome);
         }
 
-        return ScepResult<EnrollOutcome>.Fail(mapped_status, $"PKI status: {decoded.PkiStatus}");
+        return ScepResult<EnrollOutcome>.Fail(mapped_status, outcome, $"PKI status: {decoded.PkiStatus}");
     }
 
     private void Emit(TraceLevel level, string phase, string message) {

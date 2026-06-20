@@ -24,6 +24,8 @@ public sealed class TestCa {
     public Org.BouncyCastle.X509.X509Certificate Certificate { get; }
     public X509Certificate2 CertificateBcl { get; }
 
+    private readonly Dictionary<string, Org.BouncyCastle.X509.X509Certificate> _issued_by_serial = new Dictionary<string, Org.BouncyCastle.X509.X509Certificate>();
+
     private TestCa(AsymmetricCipherKeyPair keyPair, Org.BouncyCastle.X509.X509Certificate cert) {
         KeyPair = keyPair;
         Certificate = cert;
@@ -61,6 +63,23 @@ public sealed class TestCa {
         cg.SetSubjectDN(new X509Name(subject_dn));
         cg.SetNotBefore(DateTime.UtcNow.AddMinutes(-5));
         cg.SetNotAfter(DateTime.UtcNow.AddYears(1));
+        cg.SetPublicKey(subject_public_key);
+
+        Org.BouncyCastle.X509.X509Certificate issued;
+        issued = cg.Generate(new Asn1SignatureFactory("SHA256WITHRSA", KeyPair.Private));
+        _issued_by_serial[issued.SerialNumber.ToString(16).ToUpperInvariant()] = issued;
+        return issued;
+    }
+
+    public Org.BouncyCastle.X509.X509Certificate IssueExpired(AsymmetricKeyParameter subject_public_key, string subject_dn) {
+        X509V3CertificateGenerator cg;
+
+        cg = new X509V3CertificateGenerator();
+        cg.SetSerialNumber(BigInteger.ValueOf(DateTime.UtcNow.Ticks & 0x7fffffff));
+        cg.SetIssuerDN(Certificate.SubjectDN);
+        cg.SetSubjectDN(new X509Name(subject_dn));
+        cg.SetNotBefore(DateTime.UtcNow.AddYears(-2));
+        cg.SetNotAfter(DateTime.UtcNow.AddYears(-1));
         cg.SetPublicKey(subject_public_key);
         return cg.Generate(new Asn1SignatureFactory("SHA256WITHRSA", KeyPair.Private));
     }
@@ -219,6 +238,25 @@ public sealed class TestCa {
         csr_public_key = csr.GetPublicKey();
         subject_dn = csr.GetCertificationRequestInfo().Subject.ToString();
 
+        if (signer_cert.NotAfter < DateTime.UtcNow) {
+            // mirror a real CA refusing to renew off an expired cert
+            byte[] failure;
+            string tx_for_fail;
+            byte[] nonce_for_fail;
+
+            tx_for_fail = "tx";
+            nonce_for_fail = new byte[16];
+            signed_attrs = signer.SignedAttributes;
+            if (signed_attrs is not null) {
+                Org.BouncyCastle.Asn1.Cms.Attribute? tx_a = signed_attrs[new DerObjectIdentifier(OidTransId)];
+                Org.BouncyCastle.Asn1.Cms.Attribute? n_a = signed_attrs[new DerObjectIdentifier(OidSenderNonce)];
+                if (tx_a is not null) { tx_for_fail = ((DerPrintableString)tx_a.AttrValues[0]).GetString(); }
+                if (n_a is not null) { nonce_for_fail = ((Asn1OctetString)n_a.AttrValues[0]).GetOctets(); }
+            }
+            failure = BuildFailureCertRep(signer_cert, tx_for_fail, nonce_for_fail, "2");
+            return failure;
+        }
+
         issued = Issue(csr_public_key, subject_dn);
 
         signed_attrs = signer.SignedAttributes;
@@ -242,4 +280,20 @@ public sealed class TestCa {
 
         return BuildSuccessCertRep(issued, signer_cert, trans_id, sender_nonce);
     }
+
+    public string PeekMessageType(byte[] der) {
+        const string OidMessageType = "2.16.840.1.113733.1.9.2";
+        CmsSignedData signed;
+        SignerInformation signer;
+        Org.BouncyCastle.Asn1.Cms.Attribute? attr;
+
+        signed = new CmsSignedData(der);
+        signer = signed.GetSignerInfos().GetSigners().Cast<SignerInformation>().First();
+        attr = signer.SignedAttributes?[new DerObjectIdentifier(OidMessageType)];
+        return attr is null ? string.Empty : ((DerPrintableString)attr.AttrValues[0]).GetString();
+    }
+
+    public byte[] HandleGetCert(byte[] der) => throw new System.NotSupportedException("filled in Task 6");
+    public byte[] HandleGetCrl(byte[] der) => throw new System.NotSupportedException("filled in Task 6");
+    public byte[] HandlePoll(byte[] der) => throw new System.NotSupportedException("filled in Task 7");
 }
