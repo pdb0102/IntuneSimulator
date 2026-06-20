@@ -104,6 +104,17 @@ public sealed class BouncyCastleScepCrypto : IScepCrypto {
                         signer_key,
                         ScepAttributes.NumberFor(message.MessageType));
                     return true;
+                case MessageType.CertPoll:
+                    if (string.IsNullOrEmpty(message.IssuerName) || string.IsNullOrEmpty(message.SubjectName)) {
+                        error = "IssuerName and SubjectName must be set for CertPoll";
+                        return false;
+                    }
+                    der = BcPkiMessage.EncodePkiOperation(
+                        message,
+                        BcPkiMessage.BuildIssuerAndSubject(message.IssuerName!, message.SubjectName!),
+                        signer_key,
+                        ScepAttributes.NumberFor(message.MessageType));
+                    return true;
                 default:
                     error = $"unsupported message type: {message.MessageType}";
                     return false;

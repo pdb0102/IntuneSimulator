@@ -352,5 +352,20 @@ public sealed class TestCa {
         }
     }
 
-    public byte[] HandlePoll(byte[] der) => throw new System.NotSupportedException("filled in Task 7");
+    public byte[] HandlePoll(byte[] der) {
+        X509Certificate2 requester_cert;
+        string trans_id;
+        byte[] nonce;
+        byte[] inner;
+        Asn1Sequence ias;
+        Org.BouncyCastle.Asn1.X509.X509Name subject_name;
+        Org.BouncyCastle.X509.X509Certificate issued;
+
+        DecodeRequest(der, out requester_cert, out trans_id, out nonce, out inner);
+        ias = Asn1Sequence.GetInstance(Asn1Object.FromByteArray(inner));
+        subject_name = Org.BouncyCastle.Asn1.X509.X509Name.GetInstance(ias[1]);
+
+        issued = Issue(new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificate(requester_cert.RawData).GetPublicKey(), subject_name.ToString());
+        return BuildSuccessCertRep(issued, requester_cert, trans_id, nonce);
+    }
 }

@@ -332,6 +332,55 @@ public sealed class ScepClient {
             .Build(out message, out signer_key, out error);
     }
 
+    // -------------------------------------------------------------------------
+    // Poll (CertPoll / 20)
+    // -------------------------------------------------------------------------
+
+    public ScepResult<EnrollOutcome> Poll(string issuer_dn, string subject_dn, string transaction_id) {
+        PkiMessage message;
+        IScepKey signer_key;
+        string error;
+
+        if (!BuildPollMessage(issuer_dn, subject_dn, transaction_id, out message, out signer_key, out error)) {
+            return ScepResult<EnrollOutcome>.Fail(ScepClientResult.InvalidArgument, error);
+        }
+        return SendPkiOperationSync(message, signer_key);
+    }
+
+    public async Task<ScepResult<EnrollOutcome>> PollAsync(string issuer_dn, string subject_dn, string transaction_id) {
+        PkiMessage message;
+        IScepKey signer_key;
+        string error;
+
+        if (!BuildPollMessage(issuer_dn, subject_dn, transaction_id, out message, out signer_key, out error)) {
+            return ScepResult<EnrollOutcome>.Fail(ScepClientResult.InvalidArgument, error);
+        }
+        return await SendPkiOperationAsync(message, signer_key).ConfigureAwait(false);
+    }
+
+    private bool BuildPollMessage(string issuer_dn, string subject_dn, string transaction_id, out PkiMessage message, out IScepKey signer_key, out string error) {
+        X509Certificate2 ca_cert;
+
+        message = null!;
+        signer_key = null!;
+
+        if (!ResolveCaCert(out ca_cert, out error)) {
+            return false;
+        }
+
+        if (!ScepRequestBuilder.For(Crypto)
+                .CaCertificate(ca_cert)
+                .MessageType(MessageType.CertPoll)
+                .KeySpec("rsa:2048")
+                .IssuerAndSubject(issuer_dn, subject_dn)
+                .Build(out message, out signer_key, out error)) {
+            return false;
+        }
+
+        message.TransactionId = transaction_id;
+        return true;
+    }
+
     // Sends a built message and returns the FULLY DECODED PkiMessage (cert + CRL list), not just an outcome.
     private ScepResult<PkiMessage> SendDecodedSync(PkiMessage message) {
         byte[] der;
