@@ -23,7 +23,9 @@ internal static class BcCsrBuilder {
         Pkcs10CertificationRequest request;
 
         subject = new X509Name(csr.Subject);
-        signer = new Asn1SignatureFactory("SHA256WITHRSA", key.KeyPair.Private);
+        signer = BcPqKeys.IsPq(key)
+            ? BcPqKeys.SignatureFactory(key)
+            : new Asn1SignatureFactory("SHA256WITHRSA", key.KeyPair.Private);
         attributes = new List<Asn1Encodable>();
 
         if (!string.IsNullOrEmpty(csr.ChallengePassword)) {

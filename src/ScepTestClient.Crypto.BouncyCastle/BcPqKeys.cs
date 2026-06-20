@@ -1,6 +1,7 @@
 using System;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Generators;
+using Org.BouncyCastle.Crypto.Operators;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
 using ScepTestClient.CryptoApi;
@@ -112,6 +113,37 @@ internal static class BcPqKeys {
         }
 
         return false;
+    }
+
+    // True when the key is a post-quantum (ML-DSA / SLH-DSA) key. Detected via the
+    // private key's runtime type, which is the most robust signal across import/keygen paths.
+    public static bool IsPq(BcKey key) {
+        return key.KeyPair.Private is MLDsaPrivateKeyParameters || key.KeyPair.Private is SlhDsaPrivateKeyParameters;
+    }
+
+    // Build a PQ ISignatureFactory for the key, using the friendly algorithm name
+    // (e.g. "ML-DSA-65", "SLH-DSA-128s") that BC's Asn1SignatureFactory recognizes.
+    // The resulting factory emits the correct PQ AlgorithmIdentifier for the SPKI/CSR.
+    public static ISignatureFactory SignatureFactory(BcKey key) {
+        string algorithm_name;
+
+        algorithm_name = NameFor(key.KeyPair.Private);
+        if (algorithm_name.Length == 0) {
+            throw new InvalidOperationException("private key is not a supported post-quantum type");
+        }
+
+        return new Asn1SignatureFactory(algorithm_name, key.KeyPair.Private, new SecureRandom());
+    }
+
+    // Resolve the friendly signature algorithm name from a PQ private key's parameter set.
+    private static string NameFor(AsymmetricKeyParameter priv) {
+        if (priv is MLDsaPrivateKeyParameters ml_priv) {
+            return MlDsaNameFor(ml_priv.Parameters);
+        }
+        if (priv is SlhDsaPrivateKeyParameters slh_priv) {
+            return SlhDsaNameFor(slh_priv.Parameters);
+        }
+        return string.Empty;
     }
 
     // Map a BC ML-DSA parameter set instance to the registry-friendly name.
