@@ -45,9 +45,16 @@ internal static class BcEnvelope {
                 bc_cert,
                 CmsEnvelopedGenerator.Aes128Wrap);
         } else if (algorithm_oid.StartsWith(OidMlKemArc, StringComparison.Ordinal)) {
-            // ML-KEM (RFC 9629 KEMRecipientInfo) — BouncyCastle 2.5.0 has no CMS KEM recipient generator;
-            // would be a hand-rolled drop-in here, or supplied by an external provider.
-            throw new NotSupportedException("ML-KEM (KEMRecipientInfo) recipients are not implemented by this provider");
+            Org.BouncyCastle.Crypto.Parameters.MLKemPublicKeyParameters mlkem_public;
+            byte[] key_id;
+
+            // ML-KEM (RFC 9629 KEMRecipientInfo): hand-rolled (BC has no CMS KEM recipient generator).
+            // The SCEP content stays AES-CBC; only the CEK is KEM-wrapped. Returns the full ContentInfo.
+            bc_cert = new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificate(recipient_cert.RawData);
+            mlkem_public = (Org.BouncyCastle.Crypto.Parameters.MLKemPublicKeyParameters)bc_cert.GetPublicKey();
+            key_id = Org.BouncyCastle.Security.DigestUtilities.CalculateDigest("SHA-1",
+                bc_cert.CertificateStructure.SubjectPublicKeyInfo.PublicKey.GetBytes());
+            return BcKemEnvelope.EncryptCbc(content_der, mlkem_public, key_id, content_encryption_oid);
         } else {
             throw new NotSupportedException($"recipient key algorithm '{algorithm_oid}' cannot be used to encrypt a SCEP request");
         }

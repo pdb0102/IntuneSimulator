@@ -126,6 +126,14 @@ public sealed class TestCa {
                 sig_alg = "2.16.840.1.101.3.4.3.18";
                 return mldsa_gen.GenerateKeyPair();
             }
+            case "slh-dsa": {
+                Org.BouncyCastle.Crypto.Generators.SlhDsaKeyPairGenerator slhdsa_gen;
+
+                slhdsa_gen = new Org.BouncyCastle.Crypto.Generators.SlhDsaKeyPairGenerator();
+                slhdsa_gen.Init(new Org.BouncyCastle.Crypto.Parameters.SlhDsaKeyGenerationParameters(random, Org.BouncyCastle.Crypto.Parameters.SlhDsaParameters.slh_dsa_sha2_128f));
+                sig_alg = "2.16.840.1.101.3.4.3.21";   // SLH-DSA-SHA2-128f
+                return slhdsa_gen.GenerateKeyPair();
+            }
             default:
                 throw new ArgumentException($"unsupported CA algorithm '{ca_algo}'");
         }
@@ -584,13 +592,20 @@ public sealed class TestCa {
     private byte[] DecryptInner(byte[] der) {
         CmsSignedData signed;
         MemoryStream env_stream;
-        CmsEnvelopedData env;
 
         signed = new CmsSignedData(der);
         env_stream = new MemoryStream();
         signed.SignedContent.Write(env_stream);
-        env = new CmsEnvelopedData(env_stream.ToArray());
-        return env.GetRecipientInfos().GetRecipients().Cast<RecipientInformation>().First().GetContent(RecipientKey);
+        return DecryptEnvelopedData(env_stream.ToArray());
+    }
+
+    // Decrypts the SCEP inner EnvelopedData. ML-KEM recipients use the hand-rolled RFC 9629 path
+    // (BC has no CMS KEM recipient); RSA/EC use the standard recipient API.
+    private byte[] DecryptEnvelopedData(byte[] env_der) {
+        if (_encryption_key?.Private is Org.BouncyCastle.Crypto.Parameters.MLKemPrivateKeyParameters mlkem_priv) {
+            return ScepTestClient.Crypto.BouncyCastle.BcKemEnvelope.Decrypt(env_der, mlkem_priv);
+        }
+        return new CmsEnvelopedData(env_der).GetRecipientInfos().GetRecipients().Cast<RecipientInformation>().First().GetContent(RecipientKey);
     }
 
     public string PeekMessageType(byte[] der) {
@@ -640,7 +655,6 @@ public sealed class TestCa {
         SignerInformation signer;
         Org.BouncyCastle.X509.X509Certificate signer_bc_cert;
         MemoryStream env_stream;
-        CmsEnvelopedData env;
         Org.BouncyCastle.Asn1.Cms.AttributeTable attrs;
 
         signed = new CmsSignedData(der);
@@ -650,8 +664,7 @@ public sealed class TestCa {
 
         env_stream = new MemoryStream();
         signed.SignedContent.Write(env_stream);
-        env = new CmsEnvelopedData(env_stream.ToArray());
-        inner_payload = env.GetRecipientInfos().GetRecipients().Cast<RecipientInformation>().First().GetContent(RecipientKey);
+        inner_payload = DecryptEnvelopedData(env_stream.ToArray());
 
         trans_id = "tx";
         sender_nonce = new byte[16];
