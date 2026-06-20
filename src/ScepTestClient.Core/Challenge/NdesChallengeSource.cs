@@ -54,9 +54,15 @@ public sealed class NdesChallengeSource : IChallengeSource {
         }
     }
 
-    // NDES renders the challenge as a bold 8/16/32 hex run near "enrollment challenge password".
-    // Anchor to the label first so decoy hex tokens earlier in the page are not mistaken for it;
-    // fall back to the first hex run when no label is present.
+    // The real NDES mscep_admin page reads:
+    //   "The thumbprint (hash value) for the CA certificate is: <B> {thumbprint} </B>
+    //    The enrollment challenge password is: <B> {challenge} </B>
+    //    This password can be used only once and will expire within {n} minutes.
+    //    ... Each enrollment requires a new challenge password."
+    // The CA thumbprint is an earlier hex <B> block (a decoy), and "challenge password" recurs later,
+    // so anchor to the FIRST "challenge password" label and take the next hex run after it. The lazy,
+    // case-insensitive, single-line match tolerates light markup/whitespace changes (incl. the stray
+    // 'B' from "<B>"). Fall back to the first hex run only when the label is absent.
     private static string Scrape(string html) {
         string source;
         Match anchored;
@@ -64,10 +70,10 @@ public sealed class NdesChallengeSource : IChallengeSource {
 
         source = html ?? string.Empty;
 
-        anchored = Regex.Match(source, "challenge password.*?([0-9A-Fa-f]{8,40})", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        anchored = Regex.Match(source, "challenge password.*?([0-9A-Fa-f]{8,64})", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         if (anchored.Success) { return anchored.Groups[1].Value; }
 
-        m = Regex.Match(source, "([0-9A-Fa-f]{8,40})");
+        m = Regex.Match(source, "([0-9A-Fa-f]{8,64})");
         return m.Success ? m.Groups[1].Value : string.Empty;
     }
 }
