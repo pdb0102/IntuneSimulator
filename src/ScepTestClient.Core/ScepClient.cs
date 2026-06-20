@@ -6,6 +6,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using ScepTestClient.Core.Protocol;
+using ScepTestClient.Core.Recipients;
 using ScepTestClient.Core.Transport;
 using ScepTestClient.CryptoApi;
 
@@ -598,7 +599,10 @@ public sealed class ScepClient {
                 if (!ca_result.IsOk) {
                     return ScepResult<EnrollOutcome>.Fail(ca_result.Status, ca_result.Error);
                 }
-                request.CaCertificate = ca_result.Value[0];
+                if (!SelectRecipient(ca_result.Value, out X509Certificate2 recipient, out string select_error)) {
+                    return ScepResult<EnrollOutcome>.Fail(ScepClientResult.ProtocolError, select_error);
+                }
+                request.CaCertificate = recipient;
             }
 
             enroll_result = await EnrollAsync(request).ConfigureAwait(false);
@@ -635,7 +639,10 @@ public sealed class ScepClient {
                 if (!ca_result.IsOk) {
                     return ScepResult<EnrollOutcome>.Fail(ca_result.Status, ca_result.Error);
                 }
-                request.CaCertificate = ca_result.Value[0];
+                if (!SelectRecipient(ca_result.Value, out X509Certificate2 recipient, out string select_error)) {
+                    return ScepResult<EnrollOutcome>.Fail(ScepClientResult.ProtocolError, select_error);
+                }
+                request.CaCertificate = recipient;
             }
 
             enroll_result = Enroll(request);
@@ -662,6 +669,31 @@ public sealed class ScepClient {
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    // Choose the EnvelopedData recipient from the GetCACert bundle by KeyUsage (SCEP allows separate
+    // signing and encryption certs). Emits conformance findings; fails (no send) when the server
+    // offers no encryption-capable recipient.
+    private bool SelectRecipient(IReadOnlyList<X509Certificate2> certs, out X509Certificate2 recipient, out string error) {
+        RecipientSelection selection;
+
+        recipient = null!;
+        error = string.Empty;
+
+        selection = RecipientSelector.Select(certs);
+        foreach (RecipientFinding finding in selection.Findings) {
+            Emit(TraceLevel.Opinion, "RecipientSelection", $"{finding.Code}: {finding.Message}");
+        }
+
+        if (!selection.CanEnvelope || selection.EncryptionCertificate is null) {
+            error = selection.Findings.Count > 0
+                ? selection.Findings[0].Message
+                : "GetCACert returned no encryption-capable recipient certificate";
+            return false;
+        }
+
+        recipient = selection.EncryptionCertificate;
+        return true;
+    }
 
     private ScepResult<EnrollOutcome> BuildPkiMessage(EnrollRequest request, out PkiMessage pki_message, out string error) {
         Pkcs10 csr;
