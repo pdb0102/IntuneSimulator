@@ -187,6 +187,53 @@ public sealed class BouncyCastleScepCrypto : IScepCrypto {
         }
     }
 
+    public bool ExportPrivateKeyPkcs8Encrypted(IScepKey key, string passphrase, out byte[] der, out string error) {
+        Org.BouncyCastle.OpenSsl.Pkcs8Generator generator;
+        Org.BouncyCastle.Utilities.IO.Pem.PemObject pem;
+
+        der = System.Array.Empty<byte>();
+        error = string.Empty;
+
+        if (key is not BcKey bc_key) {
+            error = "key was not produced by this provider";
+            return false;
+        }
+
+        try {
+            generator = new Org.BouncyCastle.OpenSsl.Pkcs8Generator(
+                bc_key.KeyPair.Private,
+                Org.BouncyCastle.OpenSsl.Pkcs8Generator.PbeSha1_3DES);
+            generator.Password = passphrase.ToCharArray();
+            generator.SecureRandom = _random;
+            pem = generator.Generate();
+            der = pem.Content;
+            return true;
+        } catch (System.Exception ex) {
+            error = $"ExportPrivateKeyPkcs8Encrypted failed: {ex.Message}";
+            return false;
+        }
+    }
+
+    public bool ImportPrivateKeyPkcs8Encrypted(byte[] der, string passphrase, out IScepKey key, out string error) {
+        Org.BouncyCastle.Asn1.Pkcs.EncryptedPrivateKeyInfo enc_info;
+        Org.BouncyCastle.Crypto.AsymmetricKeyParameter priv;
+        byte[] plain_der;
+
+        key = null!;
+        error = string.Empty;
+
+        try {
+            enc_info = Org.BouncyCastle.Asn1.Pkcs.EncryptedPrivateKeyInfo.GetInstance(
+                Org.BouncyCastle.Asn1.Asn1Object.FromByteArray(der));
+            priv = Org.BouncyCastle.Security.PrivateKeyFactory.DecryptKey(passphrase.ToCharArray(), enc_info);
+            plain_der = Org.BouncyCastle.Pkcs.PrivateKeyInfoFactory.CreatePrivateKeyInfo(priv).GetDerEncoded();
+            return ImportPrivateKeyPkcs8(plain_der, out key, out error);
+        } catch (System.Exception ex) {
+            error = $"ImportPrivateKeyPkcs8Encrypted failed: {ex.Message}";
+            return false;
+        }
+    }
+
     public bool ParseCaCertificates(byte[] der, out IReadOnlyList<X509Certificate2> certs, out string error) {
         List<X509Certificate2> result;
 

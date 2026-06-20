@@ -24,6 +24,10 @@ public class DomainObjectTests {
         public bool ExportPrivateKeyPkcs8(IScepKey key, out byte[] der, out string error) { der = System.Array.Empty<byte>(); error = string.Empty; return true; }
 
         public bool ImportPrivateKeyPkcs8(byte[] der, out IScepKey key, out string error) { key = null!; error = string.Empty; return true; }
+
+        public bool ExportPrivateKeyPkcs8Encrypted(IScepKey key, string passphrase, out byte[] der, out string error) { der = System.Array.Empty<byte>(); error = string.Empty; return false; }
+
+        public bool ImportPrivateKeyPkcs8Encrypted(byte[] der, string passphrase, out IScepKey key, out string error) { key = null!; error = string.Empty; return false; }
     }
 
     [Fact]

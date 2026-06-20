@@ -21,7 +21,7 @@ public sealed class CertStore {
     }
 
     public string Save(string server_id, X509Certificate2 cert, IScepKey key, IScepCrypto crypto,
-                       string? challenge_password, string? renewed_from, string? transaction_id) {
+                       string? challenge_password, string? renewed_from, string? transaction_id, string? passphrase = null) {
         string cert_id;
         string cert_dir;
         byte[] key_der;
@@ -34,7 +34,11 @@ public sealed class CertStore {
 
         File.WriteAllText(Path.Combine(cert_dir, "cert.pem"), cert.ExportCertificatePem());
 
-        if (crypto.ExportPrivateKeyPkcs8(key, out key_der, out key_error)) {
+        if (!string.IsNullOrEmpty(passphrase)) {
+            if (crypto.ExportPrivateKeyPkcs8Encrypted(key, passphrase!, out key_der, out key_error)) {
+                File.WriteAllBytes(Path.Combine(cert_dir, "key.pkcs8.enc"), key_der);
+            }
+        } else if (crypto.ExportPrivateKeyPkcs8(key, out key_der, out key_error)) {
             File.WriteAllBytes(Path.Combine(cert_dir, "key.pkcs8"), key_der);
         }
 
@@ -55,10 +59,10 @@ public sealed class CertStore {
     }
 
     public bool Load(string server_id, string cert_id, IScepCrypto crypto,
-                    out X509Certificate2 cert, out IScepKey key, out CertRecord record, out string error) {
+                    out X509Certificate2 cert, out IScepKey key, out CertRecord record, out string error, string? passphrase = null) {
         string cert_dir;
         string key_path;
-        byte[] key_der;
+        string enc_path;
 
         cert = null!;
         key = null!;
@@ -74,12 +78,21 @@ public sealed class CertStore {
         cert = X509Certificate2.CreateFromPem(File.ReadAllText(Path.Combine(cert_dir, "cert.pem")));
 
         key_path = Path.Combine(cert_dir, "key.pkcs8");
-        if (!File.Exists(key_path)) {
+        enc_path = Path.Combine(cert_dir, "key.pkcs8.enc");
+        if (File.Exists(enc_path)) {
+            if (string.IsNullOrEmpty(passphrase)) {
+                error = $"certificate '{cert_id}' has an encrypted key; a passphrase is required";
+                return false;
+            }
+            if (!crypto.ImportPrivateKeyPkcs8Encrypted(File.ReadAllBytes(enc_path), passphrase!, out key, out error)) {
+                return false;
+            }
+        } else if (File.Exists(key_path)) {
+            if (!crypto.ImportPrivateKeyPkcs8(File.ReadAllBytes(key_path), out key, out error)) {
+                return false;
+            }
+        } else {
             error = $"no stored key for certificate '{cert_id}'";
-            return false;
-        }
-        key_der = File.ReadAllBytes(key_path);
-        if (!crypto.ImportPrivateKeyPkcs8(key_der, out key, out error)) {
             return false;
         }
 
