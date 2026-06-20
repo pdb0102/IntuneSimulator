@@ -16,9 +16,8 @@ internal static class BcPkiMessage {
     private const string SigningTimeOid = "1.2.840.113549.1.9.5";
 
     public static byte[] EncodePkiOperation(PkiMessage message, byte[] inner_payload_der, BcKey signer_key, string message_type_number, FaultDirectives? faults) {
-        CmsEnvelopedDataGenerator enveloped_gen;
-        CmsEnvelopedData enveloped;
         CmsProcessable enveloped_content;
+        byte[] enveloped_bytes;
         Org.BouncyCastle.X509.X509Certificate signer_cert;
         CmsSignedDataGenerator signed_gen;
         Dictionary<DerObjectIdentifier, object> signed_attrs;
@@ -27,11 +26,8 @@ internal static class BcPkiMessage {
         IStore<Org.BouncyCastle.X509.X509Certificate> cert_store;
         string trans_id;
         byte[] sender_nonce;
-        Org.BouncyCastle.X509.X509Certificate recipient_bc_cert;
         byte[] payload_for_envelope;
         Org.BouncyCastle.Crypto.AsymmetricKeyParameter signing_private_key;
-
-        recipient_bc_cert = new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificate(message.RecipientCaCert!.RawData);
 
         if (message.SignerCert != null) {
             signer_cert = new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificate(message.SignerCert.RawData);
@@ -80,16 +76,14 @@ internal static class BcPkiMessage {
         }
         // ---- END deliberate-fault branch ----
 
-        enveloped_gen = new CmsEnvelopedDataGenerator(Random);
-        enveloped_gen.AddKeyTransRecipient(recipient_bc_cert);
-        enveloped = enveloped_gen.Generate(new CmsProcessableByteArray(payload_for_envelope), message.ContentEncryptionAlgorithmOid);
+        enveloped_bytes = BcEnvelope.Build(message.RecipientCaCert!, payload_for_envelope, message.ContentEncryptionAlgorithmOid, Random);
 
         cert_store = CollectionUtilities.CreateStore(new[] { signer_cert });
         signed_gen = new CmsSignedDataGenerator(Random);
         signed_gen.AddSigner(signing_private_key, signer_cert, message.DigestAlgorithmOid, signed_attr_table, null);
         signed_gen.AddCertificates(cert_store);
 
-        enveloped_content = new CmsProcessableByteArray(enveloped.GetEncoded());
+        enveloped_content = new CmsProcessableByteArray(enveloped_bytes);
         signed_data = signed_gen.Generate(Org.BouncyCastle.Asn1.Cms.CmsObjectIdentifiers.EnvelopedData.Id, enveloped_content, true);
 
         return signed_data.GetEncoded();
