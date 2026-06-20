@@ -1,10 +1,15 @@
 using System.Collections.Generic;
 using ScepTestClient.Core.Protocol;
+using ScepTestClient.CryptoApi;
 
 namespace ScepTestClient.Core.Testing;
 
 public static class ServerSuggest {
     public static IReadOnlyList<string> For(string server_id, ScepCapabilities caps) {
+        return For(server_id, caps, new CryptoCapabilities());
+    }
+
+    public static IReadOnlyList<string> For(string server_id, ScepCapabilities caps, CryptoCapabilities crypto_caps) {
         List<string> lines;
         List<string> digests;
         List<string> ciphers;
@@ -26,6 +31,10 @@ public static class ServerSuggest {
             foreach (string cipher in ciphers) {
                 lines.Add($"sceptest enroll {server_id} --subject \"CN=test\" --key-spec rsa:2048 --digest {digest} --cipher {cipher}");
             }
+        }
+
+        if (crypto_caps.PqTiers.TierA) {
+            lines.Add($"sceptest enroll {server_id} --subject \"CN=test\" --key-spec ml-dsa:65 --digest {digests[0]} --cipher {ciphers[0]}");
         }
         return lines;
     }

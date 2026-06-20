@@ -15,6 +15,18 @@ public static class Algorithms {
         new("AES-256-CBC", "2.16.840.1.101.3.4.1.42",       AlgorithmKind.ContentEncryption),
         new("DES-EDE3-CBC","1.2.840.113549.3.7",            AlgorithmKind.ContentEncryption),
         new("RSA",         "1.2.840.113549.1.1.1",          AlgorithmKind.AsymmetricKey),
+        new("ML-DSA-44",   "2.16.840.1.101.3.4.3.17",       AlgorithmKind.Signature),
+        new("ML-DSA-65",   "2.16.840.1.101.3.4.3.18",       AlgorithmKind.Signature),
+        new("ML-DSA-87",   "2.16.840.1.101.3.4.3.19",       AlgorithmKind.Signature),
+        new("SLH-DSA-128s","2.16.840.1.101.3.4.3.20",       AlgorithmKind.Signature),
+        new("SLH-DSA-128f","2.16.840.1.101.3.4.3.21",       AlgorithmKind.Signature),
+        new("SLH-DSA-192s","2.16.840.1.101.3.4.3.22",       AlgorithmKind.Signature),
+        new("SLH-DSA-192f","2.16.840.1.101.3.4.3.23",       AlgorithmKind.Signature),
+        new("SLH-DSA-256s","2.16.840.1.101.3.4.3.24",       AlgorithmKind.Signature),
+        new("SLH-DSA-256f","2.16.840.1.101.3.4.3.25",       AlgorithmKind.Signature),
+        new("ML-KEM-512",  "2.16.840.1.101.3.4.4.1",        AlgorithmKind.Kem),
+        new("ML-KEM-768",  "2.16.840.1.101.3.4.4.2",        AlgorithmKind.Kem),
+        new("ML-KEM-1024", "2.16.840.1.101.3.4.4.3",        AlgorithmKind.Kem),
     };
 
     private static readonly Dictionary<string, AlgorithmEntry> ByName = BuildIndex(static e => e.Name);

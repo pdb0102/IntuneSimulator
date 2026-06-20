@@ -15,18 +15,41 @@ public sealed class BouncyCastleScepCrypto : IScepCrypto {
 
     public CryptoCapabilities Capabilities { get; } = new CryptoCapabilities {
         Digests = new[] { BcAlgorithms.Sha1, BcAlgorithms.Sha256, BcAlgorithms.Sha512, BcAlgorithms.Md5 },
-        Signatures = new[] { BcAlgorithms.Rsa },
+        Signatures = new[] { BcAlgorithms.Rsa, BcAlgorithms.MlDsa44, BcAlgorithms.MlDsa65, BcAlgorithms.MlDsa87,
+                             BcAlgorithms.SlhDsa128s, BcAlgorithms.SlhDsa128f, BcAlgorithms.SlhDsa192s,
+                             BcAlgorithms.SlhDsa192f, BcAlgorithms.SlhDsa256s, BcAlgorithms.SlhDsa256f },
         ContentEncryption = new[] { BcAlgorithms.Aes128Cbc, BcAlgorithms.Aes256Cbc, BcAlgorithms.Des3Cbc },
         KeyTransport = new[] { BcAlgorithms.Rsa },
-        AsymmetricKeys = new[] { BcAlgorithms.Rsa },
+        Kem = new[] { BcAlgorithms.MlKem512, BcAlgorithms.MlKem768, BcAlgorithms.MlKem1024 },
+        AsymmetricKeys = new[] { BcAlgorithms.Rsa, BcAlgorithms.MlDsa44, BcAlgorithms.MlDsa65, BcAlgorithms.MlDsa87,
+                                 BcAlgorithms.SlhDsa128s, BcAlgorithms.SlhDsa128f, BcAlgorithms.SlhDsa192s,
+                                 BcAlgorithms.SlhDsa192f, BcAlgorithms.SlhDsa256s, BcAlgorithms.SlhDsa256f },
+        PqTiers = new PqTiers(TierA: true, TierB: true, TierC: false),
     };
 
     public bool GenerateKey(KeySpec spec, out IScepKey key, out string error) {
         RsaKeyPairGenerator generator;
         AsymmetricCipherKeyPair pair;
+        AsymmetricCipherKeyPair pq_pair;
+        string pq_oid_name;
+        string pq_error;
 
         key = null!;
         error = string.Empty;
+
+        try {
+            if (BcPqKeys.TryGenerate(spec, _random, out pq_pair, out pq_oid_name, out pq_error)) {
+                key = new BcKey(pq_pair, Algorithms.OidFor(pq_oid_name)!, 0);
+                return true;
+            }
+        } catch (Exception ex) {
+            error = $"{spec.Algorithm} key generation failed: {ex.Message}";
+            return false;
+        }
+        if (pq_error.Length > 0) {
+            error = pq_error;
+            return false;
+        }
 
         if (!spec.Algorithm.Equals("RSA", StringComparison.OrdinalIgnoreCase)) {
             error = $"provider does not support key algorithm '{spec.Algorithm}'";
@@ -155,6 +178,8 @@ public sealed class BouncyCastleScepCrypto : IScepCrypto {
         }
 
         try {
+            // The mainline PrivateKeyInfoFactory handles both RSA and the BC 2.5.0
+            // Org.BouncyCastle.Crypto.Parameters ML-DSA / SLH-DSA key types.
             der = Org.BouncyCastle.Pkcs.PrivateKeyInfoFactory.CreatePrivateKeyInfo(bc_key.KeyPair.Private).GetDerEncoded();
             return true;
         } catch (System.Exception ex) {
@@ -168,12 +193,23 @@ public sealed class BouncyCastleScepCrypto : IScepCrypto {
         Org.BouncyCastle.Crypto.Parameters.RsaPrivateCrtKeyParameters rsa_priv;
         Org.BouncyCastle.Crypto.Parameters.RsaKeyParameters pub;
         Org.BouncyCastle.Crypto.AsymmetricCipherKeyPair pair;
+        Org.BouncyCastle.Crypto.AsymmetricCipherKeyPair pq_pair;
+        string pq_oid_name;
+        string pq_error;
 
         key = null!;
         error = string.Empty;
 
         try {
             priv = Org.BouncyCastle.Security.PrivateKeyFactory.CreateKey(der);
+            if (BcPqKeys.TryImport(priv, out pq_pair, out pq_oid_name, out pq_error)) {
+                key = new BcKey(pq_pair, Algorithms.OidFor(pq_oid_name)!, 0);
+                return true;
+            }
+            if (pq_error.Length > 0) {
+                error = pq_error;
+                return false;
+            }
             if (priv is not Org.BouncyCastle.Crypto.Parameters.RsaPrivateCrtKeyParameters crt) {
                 error = "only RSA PKCS#8 keys are supported by this provider";
                 return false;

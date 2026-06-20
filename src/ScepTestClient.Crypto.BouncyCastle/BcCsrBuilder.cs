@@ -23,7 +23,9 @@ internal static class BcCsrBuilder {
         Pkcs10CertificationRequest request;
 
         subject = new X509Name(csr.Subject);
-        signer = new Asn1SignatureFactory("SHA256WITHRSA", key.KeyPair.Private);
+        signer = BcPqKeys.IsPq(key)
+            ? BcPqKeys.SignatureFactory(key)
+            : new Asn1SignatureFactory("SHA256WITHRSA", key.KeyPair.Private);
         attributes = new List<Asn1Encodable>();
 
         if (!string.IsNullOrEmpty(csr.ChallengePassword)) {
@@ -74,6 +76,18 @@ internal static class BcCsrBuilder {
 
         foreach ((string oid, byte[] value, bool critical) in csr.Extensions) {
             gen.AddExtension(new DerObjectIdentifier(oid), critical, value);
+            any = true;
+        }
+
+        if (csr.AltKey is BcKey alt_bc) {
+            Org.BouncyCastle.Asn1.X509.SubjectPublicKeyInfo alt_spki;
+
+            // subjectAltPublicKeyInfo (id-ce-subjectAltPublicKeyInfo, 2.5.29.72). Carries the alt public
+            // key only; the built-in provider does NOT compute altSignatureAlgorithm/altSignatureValue
+            // (bleeding-edge). Mainline X509.SubjectPublicKeyInfoFactory handles both classical and the
+            // mainline PQ key types (Pqc.PqcSubjectPublicKeyInfoFactory throws for the latter).
+            alt_spki = Org.BouncyCastle.X509.SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(alt_bc.KeyPair.Public);
+            gen.AddExtension(new DerObjectIdentifier("2.5.29.72"), false, alt_spki);
             any = true;
         }
 

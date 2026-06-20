@@ -32,4 +32,15 @@ public static class SecurityOpinion {
         if (bits < thresholds.MinRsaKeyBits) { return AlgorithmPosture.LegacyWeak; }
         return AlgorithmPosture.Modern;
     }
+
+    public static AlgorithmPosture ClassifySignature(string name) {
+        string upper;
+
+        upper = (name ?? string.Empty).ToUpperInvariant();
+        if (upper.StartsWith("ML-DSA") || upper.StartsWith("SLH-DSA") || upper.StartsWith("ML-KEM")) {
+            return AlgorithmPosture.CuttingEdge;
+        }
+        if (upper == "RSA") { return AlgorithmPosture.Modern; }
+        return AlgorithmPosture.Unknown;
+    }
 }
