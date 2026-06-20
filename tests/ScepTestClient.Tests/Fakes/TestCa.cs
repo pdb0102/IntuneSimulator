@@ -424,7 +424,7 @@ public sealed class TestCa {
         }
 
         // 3. Forbidden digest (MD5) -> badAlg ("0").
-        if (signer.DigestAlgOid == "1.2.840.113549.2.5") {
+        if (signer.DigestAlgorithmID.Algorithm.Id == "1.2.840.113549.2.5") {
             return BuildFailureCertRep(RecipientFrom(signed, signer), TransIdFrom(signer), NonceFrom(signer), "0");
         }
 

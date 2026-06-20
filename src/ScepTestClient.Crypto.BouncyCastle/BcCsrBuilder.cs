@@ -70,7 +70,7 @@ internal static class BcCsrBuilder {
 
             sid_value = new DerOctetString(System.Text.Encoding.ASCII.GetBytes(csr.Sid!));
             sid_seq = new DerSequence(new DerObjectIdentifier("1.3.6.1.4.1.311.25.2.1"), new DerTaggedObject(true, 0, sid_value));
-            gen.AddExtension(new DerObjectIdentifier(SidExtensionOid), false, new DerSequence(sid_seq));
+            gen.AddExtension(new DerObjectIdentifier(SidExtensionOid), false, new DerSequence((Asn1Encodable)sid_seq));
             any = true;
         }
 

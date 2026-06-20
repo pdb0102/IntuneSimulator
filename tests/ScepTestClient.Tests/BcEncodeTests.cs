@@ -85,6 +85,6 @@ public class BcEncodeTests {
 
         signed = new CmsSignedData(der);
         signer = signed.GetSignerInfos().GetSigners().Cast<SignerInformation>().First();
-        Assert.Equal(expected_oid, signer.DigestAlgOid);
+        Assert.Equal(expected_oid, signer.DigestAlgorithmID.Algorithm.Id);
     }
 }
