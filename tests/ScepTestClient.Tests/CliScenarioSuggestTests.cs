@@ -26,6 +26,8 @@ public sealed class CliScenarioSuggestTests {
             Assert.Equal(0, code);
             Assert.Contains("sceptest enroll testhost", output.ToString());
             Assert.Contains("--digest SHA-256", output.ToString());
+            Assert.Contains("posture:", output.ToString());
+            Assert.Contains("Modern", output.ToString());
         } finally {
             await server.DisposeAsync();
         }

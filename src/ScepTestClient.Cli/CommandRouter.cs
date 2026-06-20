@@ -122,6 +122,8 @@ public static class CommandRouter {
         StoredServer stored;
         ScepCapabilities caps;
         System.Collections.Generic.IReadOnlyList<string> lines;
+        ClientConfig config;
+        ScepTestClient.Core.Testing.OpinionThresholds thresholds;
 
         if (args.Length < 3) { output.WriteLine("usage: servers suggest <id>"); return 2; }
         server_id = args[2];
@@ -129,6 +131,16 @@ public static class CommandRouter {
         caps = client.GetCaCaps().Value ?? ScepCapabilities.Parse(string.Empty);
         lines = ScepTestClient.Core.Testing.ServerSuggest.For(server_id, caps);
         foreach (string line in lines) { output.WriteLine(line); }
+
+        config = ClientConfig.Load(data_root);
+        thresholds = new ScepTestClient.Core.Testing.OpinionThresholds { MinRsaKeyBits = config.MinRsaKeyBits };
+
+        if (caps.Sha256) { output.WriteLine($"posture: SHA-256  {ScepTestClient.Core.Testing.SecurityOpinion.ClassifyDigest("SHA-256")}"); }
+        if (caps.Sha512) { output.WriteLine($"posture: SHA-512  {ScepTestClient.Core.Testing.SecurityOpinion.ClassifyDigest("SHA-512")}"); }
+        if (caps.Sha1) { output.WriteLine($"posture: SHA-1  {ScepTestClient.Core.Testing.SecurityOpinion.ClassifyDigest("SHA-1")}"); }
+        if (caps.Aes) { output.WriteLine($"posture: AES-128-CBC  {ScepTestClient.Core.Testing.SecurityOpinion.ClassifyCipher("AES-128-CBC")}"); }
+        if (caps.Des3) { output.WriteLine($"posture: DES-EDE3-CBC  {ScepTestClient.Core.Testing.SecurityOpinion.ClassifyCipher("DES-EDE3-CBC")}"); }
+        output.WriteLine($"posture: RSA-{thresholds.MinRsaKeyBits}  {ScepTestClient.Core.Testing.SecurityOpinion.ClassifyRsa(thresholds.MinRsaKeyBits, thresholds)}");
         return 0;
     }
 
