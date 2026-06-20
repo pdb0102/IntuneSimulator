@@ -9,4 +9,5 @@ public sealed class CryptoCapabilities {
     public IReadOnlyCollection<string> KeyTransport { get; init; } = System.Array.Empty<string>();
     public IReadOnlyCollection<string> Kem { get; init; } = System.Array.Empty<string>();
     public IReadOnlyCollection<string> AsymmetricKeys { get; init; } = System.Array.Empty<string>();
+    public PqTiers PqTiers { get; init; } = new PqTiers();
 }
