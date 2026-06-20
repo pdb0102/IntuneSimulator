@@ -1,4 +1,6 @@
 using System.Text;
+using Org.BouncyCastle.Asn1;
+using Org.BouncyCastle.Asn1.Cms;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Parameters;
@@ -41,5 +43,26 @@ public sealed class KemEnvelopeTests {
 
         recovered = BcKemEnvelope.Decrypt(der, priv);
         Assert.Equal(plaintext, recovered);
+    }
+
+    // EnvelopedData with an ori (OtherRecipientInfo) recipient MUST be version 3 (RFC 5652 §6.1).
+    [Fact]
+    public void Cbc_envelope_is_version_3() {
+        MLKemKeyPairGenerator generator;
+        AsymmetricCipherKeyPair pair;
+        MLKemPublicKeyParameters pub;
+        byte[] der;
+        ContentInfo ci;
+        EnvelopedData ed;
+
+        generator = new MLKemKeyPairGenerator();
+        generator.Init(new MLKemKeyGenerationParameters(new SecureRandom(), MLKemParameters.ml_kem_768));
+        pair = generator.GenerateKeyPair();
+        pub = (MLKemPublicKeyParameters)pair.Public;
+
+        der = BcKemEnvelope.EncryptCbc(Encoding.UTF8.GetBytes("v3"), pub, new byte[20], Aes128CbcOid);
+        ci = ContentInfo.GetInstance(Asn1Object.FromByteArray(der));
+        ed = EnvelopedData.GetInstance(ci.Content);
+        Assert.Equal(3, ed.Version.IntValueExact);
     }
 }

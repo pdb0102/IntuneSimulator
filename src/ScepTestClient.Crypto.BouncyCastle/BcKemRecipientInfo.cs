@@ -8,7 +8,6 @@ using Org.BouncyCastle.Crypto.Digests;
 using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Kems;
 using Org.BouncyCastle.Crypto.Parameters;
-using Org.BouncyCastle.Security;
 
 namespace ScepTestClient.Crypto.BouncyCastle;
 
@@ -152,10 +151,12 @@ internal static class BcKemRecipientInfo {
         return okm;
     }
 
+    // RFC 3394 AES Key Wrap (what id-aesNNN-wrap denotes). "AES" via WrapperUtilities resolves to an
+    // ECB-padding wrapper, which is NOT key-wrap and is non-interoperable — use AesWrapEngine directly.
     private static byte[] AesKeyWrap(byte[] kek, byte[] key_to_wrap) {
         IWrapper wrapper;
 
-        wrapper = WrapperUtilities.GetWrapper("AES");
+        wrapper = new Org.BouncyCastle.Crypto.Engines.AesWrapEngine();
         wrapper.Init(true, new KeyParameter(kek));
         return wrapper.Wrap(key_to_wrap, 0, key_to_wrap.Length);
     }
@@ -163,7 +164,7 @@ internal static class BcKemRecipientInfo {
     private static byte[] AesKeyUnwrap(byte[] kek, byte[] wrapped) {
         IWrapper wrapper;
 
-        wrapper = WrapperUtilities.GetWrapper("AES");
+        wrapper = new Org.BouncyCastle.Crypto.Engines.AesWrapEngine();
         wrapper.Init(false, new KeyParameter(kek));
         return wrapper.Unwrap(wrapped, 0, wrapped.Length);
     }

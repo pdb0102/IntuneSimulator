@@ -80,6 +80,9 @@ internal static class BcKemEnvelope {
 
         eci = enveloped_data.EncryptedContentInfo;
         iv = Asn1OctetString.GetInstance(eci.ContentEncryptionAlgorithm.Parameters).GetOctets();
+        if (eci.EncryptedContent is null) {
+            throw new InvalidOperationException("EnvelopedData has no EncryptedContent ([0] OPTIONAL; detached content not supported)");
+        }
         encrypted_content = eci.EncryptedContent.GetOctets();
         plaintext = AesCbc(false, cek, iv, encrypted_content);
         Array.Clear(cek, 0, cek.Length);
@@ -162,6 +165,9 @@ internal static class BcKemEnvelope {
         gcm_params = Asn1Sequence.GetInstance(eci.ContentEncryptionAlgorithm.Parameters);
         nonce = Asn1OctetString.GetInstance(gcm_params[0]).GetOctets();
         icv_len = gcm_params.Count > 1 ? DerInteger.GetInstance(gcm_params[1]).IntValueExact : 12;
+        if (eci.EncryptedContent is null) {
+            throw new InvalidOperationException("AuthEnvelopedData has no EncryptedContent ([0] OPTIONAL; detached content not supported)");
+        }
         ciphertext = eci.EncryptedContent.GetOctets();
 
         cipher_with_tag = new byte[ciphertext.Length + tag.Length];
