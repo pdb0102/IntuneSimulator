@@ -9,9 +9,7 @@ conformance coverage see `coverage-matrix.md`; for the history of external perso
 
 ## Active
 
-- **Enable `EnforceCodeStyleInBuild`.** The `.editorconfig` house style is currently enforced only
-  via the IDE / `dotnet format` (`EnforceCodeStyleInBuild` is OFF). Flip it on once the tree is
-  verified clean under it, so style violations fail the build.
+_Nothing open._
 
 ---
 
@@ -45,3 +43,15 @@ These were consciously decided against; the rationale lives in `design.md`.
 - External persona-review rounds 1-4 + the Round-4 adversarial backlog (#43-52) + a whole-codebase
   code review + CA-key-at-rest encryption. Full per-finding history in `persona-backlog.md`.
 - NDES server emulation (`scepca --ndes-*`) and the client NDES challenge scrape.
+- XML documentation generation (`GenerateDocumentationFile`) for the ScepWright libraries, so the
+  `.xml` ships beside each assembly for IntelliSense.
+- Version from the git tag: the release workflow stamps `-p:Version=<tag>` into every assembly, with
+  a CI guard that the tag matches `Directory.Build.props` `<Version>`; one suite version bumped
+  together per release. See `design.md` Sec 2.
+- Docs consolidation: authoritative `design.md` + this `Backlog.md`; removed the gitignored
+  `docs/superpowers/` specs/plans/analysis; trimmed `persona-backlog.md` to a history stub.
+- 1.0.0 history reset: collapsed the development history into a single signed commit and released
+  `v1.0.0`.
+- `EnforceCodeStyleInBuild` enabled for the ScepWright suite (incl. tests): the .editorconfig house
+  style - naming, no-`var` (IDE0008), braces (IDE0011) - now fails the build on violation. Tree builds
+  clean (0 warnings). IntuneSimulator keeps its modern idioms (enforcement scoped to `ScepWright.*`).

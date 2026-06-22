@@ -30,6 +30,11 @@ csharp_new_line_between_query_expression_clauses = false
 # --- Always brace single-statement blocks (no unbraced if/for/while/foreach) ---
 csharp_prefer_braces = true:warning
 
+# Explicit diagnostic severities so the no-var + braces rules are enforced at build
+# (EnforceCodeStyleInBuild) regardless of the inline `:warning` form.
+dotnet_diagnostic.IDE0008.severity = warning   # use the explicit type, not 'var'
+dotnet_diagnostic.IDE0011.severity = warning   # add braces to single-statement blocks
+
 # --- No LINQ-style suggestions ---
 dotnet_diagnostic.IDE0057.severity = none
 csharp_style_prefer_switch_expression = false

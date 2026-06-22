@@ -14,4 +14,11 @@
   <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('ScepWright')) and !$(MSBuildProjectName.EndsWith('.Tests'))">
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
+
+  <!-- Enforce the .editorconfig house style at build time for the ScepWright suite (incl. tests),
+       so style violations surface as build diagnostics. NOT applied to IntuneSimulator, which keeps
+       its modern idioms (var/LINQ). -->
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('ScepWright'))">
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
 </Project>
