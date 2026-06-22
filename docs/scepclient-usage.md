@@ -1,6 +1,6 @@
 # scepclient - SCEP client usage
 
-`scepclient` is a real RFC 8894 SCEP client: get a deployable certificate in one command, or stress-test any SCEP server for compliance. Pluggable crypto, post-quantum, recipient-aware enveloping. (Runs standalone, or via `scepwright client …` / `scepwright test …`.)
+`scepclient` is an RFC 8894 SCEP client: get a deployable certificate in one command, or stress-test any SCEP server for compliance. Pluggable crypto, post-quantum, recipient-aware enveloping. (Runs standalone, or via `scepwright client …` / `scepwright test …`.)
 
 ## Use it - get and manage certificates
 | Command | Purpose |

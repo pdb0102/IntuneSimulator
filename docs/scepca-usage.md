@@ -1,6 +1,6 @@
 # scepca - SCEP server usage
 
-`scepca` is a real SCEP server that issues **real certificates from a built-in, UNTRUSTED test CA**. Stand it up to test any SCEP client. (Runs standalone, or via `scepwright server …`.) Per-profile endpoints cover RSA/EC/ML-KEM recipient shapes; the CA persists across restarts so clients that trusted it stay trusting it.
+`scepca` is a SCEP server that issues **real certificates from a built-in, UNTRUSTED test CA**. Stand it up to test any SCEP client. (Runs standalone, or via `scepwright server …`.) Per-profile endpoints cover RSA/EC/ML-KEM recipient shapes; the CA persists across restarts so clients that trusted it stay trusting it.
 
 > **The CA is UNTRUSTED by design.** Export it with `--export-ca <path>` and trust it explicitly in the client under test. Never use it as a real CA.
 

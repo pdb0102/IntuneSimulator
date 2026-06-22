@@ -16,11 +16,11 @@ decisions (including accepted tradeoffs). For day-to-day usage see `scepclient-u
 
 Three distinct test surfaces - **not** "two sides of one wire":
 
-- **`scepclient` (the crown jewel)** - a real RFC 8894 SCEP **client**. Get a deployable
+- **`scepclient` (the crown jewel)** - an RFC 8894 SCEP **client**. Get a deployable
   certificate in one command, or stress-test any SCEP **server** for RFC compliance (every client
   mistake maps to an expected `failInfo`, leniency findings, timing/Jamf simulation, CI reports).
   Pluggable crypto, post-quantum subject keys, recipient-aware enveloping.
-- **`scepca`** - a real SCEP **server**: issues real certificates from a built-in, **untrusted**
+- **`scepca`** - a SCEP **server**: issues real certificates from a built-in, **untrusted**
   test CA. Stand it up to test any SCEP **client**; per-profile endpoints for every RSA/EC/ML-KEM
   recipient shape, fault injection, optional NDES emulation.
 - **IntuneSimulator** - fakes the **Intune / AAD / Graph cloud chain** so a real SCEP **server**
