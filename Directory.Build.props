@@ -1,0 +1,17 @@
+<Project>
+  <!-- Suite-wide version. InformationalVersion (used by the version command and report attribution)
+       renders as a clean "1.0.0" rather than the four-part assembly default "1.0.0.0". The git commit
+       suffix is suppressed so the displayed/attributed version stays tidy. -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <!-- Emit the XML documentation file beside each shipping ScepWright assembly so IntelliSense shows
+       the public API docs to anyone referencing the libraries (and in the published bundle). Scoped to
+       the ScepWright suite: test projects have no consumer-facing API, and IntuneSimulator is a
+       standalone web app with no library consumers. -->
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('ScepWright')) and !$(MSBuildProjectName.EndsWith('.Tests'))">
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+</Project>

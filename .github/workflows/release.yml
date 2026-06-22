@@ -1,0 +1,125 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Fail fast if the committed source version was not bumped to match the release tag. A source
+      # download (no .git, so no tag-derivation possible) gets its version from Directory.Build.props's
+      # <Version>, so it MUST equal the tag - otherwise source builds would report the wrong version.
+      - name: Verify source version matches tag
+        run: |
+          src_ver=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+          tag_ver="${GITHUB_REF_NAME#v}"
+          echo "Directory.Build.props <Version> = $src_ver ; tag = $tag_ver"
+          if [ "$src_ver" != "$tag_ver" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match <Version>$src_ver</Version> in Directory.Build.props. Bump the source version and commit it before tagging."
+            exit 1
+          fi
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Test
+        run: dotnet test --configuration Release -m:1
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Self-contained builds — the .NET runtime is bundled, so consumers need no install.
+        rid: [win-x64, linux-x64, linux-arm64, osx-x64, osx-arm64]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      # The git tag is the single source of truth for the release version: strip the leading "v"
+      # (v1.2.3 -> 1.2.3) and stamp it into every assembly via -p:Version below. The <Version> in
+      # Directory.Build.props stays as the fallback for local/dev builds.
+      - name: Derive version from tag
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish (self-contained, ${{ matrix.rid }})
+        run: >
+          dotnet publish src/IntuneSimulator.Host/IntuneSimulator.Host.csproj
+          --configuration Release
+          --runtime ${{ matrix.rid }}
+          --self-contained true
+          -p:Version=${{ steps.version.outputs.value }}
+          --output ./publish/${{ matrix.rid }}
+
+      - name: Zip
+        run: cd publish/${{ matrix.rid }} && zip -r ../../IntuneSimulator-${{ github.ref_name }}-${{ matrix.rid }}.zip .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: IntuneSimulator-${{ matrix.rid }}
+          path: IntuneSimulator-${{ github.ref_name }}-${{ matrix.rid }}.zip
+          retention-days: 1
+
+      - name: Publish scepwright bundle (self-contained, ${{ matrix.rid }})
+        run: |
+          set -e
+          # Folder publish (PublishSingleFile=false): the BC crypto provider is loaded by
+          # filename from AppContext.BaseDirectory, so the provider DLL must stay a loose file.
+          for proj in src/ScepWright.Dispatcher/ScepWright.Dispatcher.csproj \
+                      src/ScepWright.Client/ScepWright.Client.csproj \
+                      src/ScepWright.Server.Host/ScepWright.Server.Host.csproj; do
+            dotnet publish "$proj" \
+              --configuration Release \
+              --runtime ${{ matrix.rid }} \
+              --self-contained true \
+              -p:PublishSingleFile=false \
+              -p:Version=${{ steps.version.outputs.value }} \
+              --output ./publish-scepwright/${{ matrix.rid }}
+          done
+          # Ship the documented sample scenario alongside the binaries.
+          mkdir -p ./publish-scepwright/${{ matrix.rid }}/examples
+          cp examples/scenario.json ./publish-scepwright/${{ matrix.rid }}/examples/
+
+      - name: Zip scepwright bundle
+        run: cd publish-scepwright/${{ matrix.rid }} && zip -r ../../scepwright-${{ github.ref_name }}-${{ matrix.rid }}.zip .
+
+      - name: Upload scepwright artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: scepwright-${{ matrix.rid }}
+          path: scepwright-${{ github.ref_name }}-${{ matrix.rid }}.zip
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Needed so body_path can read RELEASE-NOTES.md from the tagged commit.
+      - uses: actions/checkout@v7
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/**/*.zip
+          body_path: RELEASE-NOTES.md
+          generate_release_notes: true

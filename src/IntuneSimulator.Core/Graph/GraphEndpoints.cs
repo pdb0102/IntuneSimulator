@@ -1,0 +1,47 @@
+using IntuneSimulator.Core.Auth;
+using IntuneSimulator.Core.Signing;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+
+namespace IntuneSimulator.Core.Graph;
+
+/// <summary>Maps the simulated MS Graph / AAD Graph service-discovery endpoints used to locate the SCEP and PKI connector services.</summary>
+public static class GraphEndpoints
+{
+    /// <summary>Service/provider name advertised for the SCEP request-validation service.</summary>
+    public const string ScepService = "ScepRequestValidationFEService";
+    /// <summary>Service/provider name advertised for the PKI connector service.</summary>
+    public const string PkiService = "PkiConnectorFEService";
+
+    /// <summary>Maps the Graph service-discovery endpoints onto the application.</summary>
+    public static IEndpointRouteBuilder MapGraphEndpoints(this IEndpointRouteBuilder app)
+    {
+        // MS Graph form: /v1.0/servicePrincipals/appId={appId}/endpoints
+        // The segment "appId={appId}" contains a literal prefix; ASP.NET Core minimal routing
+        // supports mixed literal+parameter segments, so this template should bind correctly.
+        app.MapGet("/v{version}/servicePrincipals/appId={appId}/endpoints",
+            (HttpContext ctx, TokenSigningKey key, string version, string appId) =>
+                BearerCheck.HasValidBearer(ctx, key) ? Discovery(ctx) : Results.Unauthorized());
+
+        // AAD Graph form: /{tenant}/servicePrincipalsByAppId/{appId}/serviceEndpoints
+        app.MapGet("/{tenant}/servicePrincipalsByAppId/{appId}/serviceEndpoints",
+            (HttpContext ctx, TokenSigningKey key, string tenant, string appId) =>
+                BearerCheck.HasValidBearer(ctx, key) ? Discovery(ctx) : Results.Unauthorized());
+
+        return app;
+    }
+
+    private static IResult Discovery(HttpContext ctx)
+    {
+        var b = ctx.BaseUrl();
+        return SimResults.Json(new
+        {
+            value = new[]
+            {
+                new { providerName = ScepService, serviceName = ScepService, uri = b },
+                new { providerName = PkiService,  serviceName = PkiService,  uri = b },
+            }
+        });
+    }
+}

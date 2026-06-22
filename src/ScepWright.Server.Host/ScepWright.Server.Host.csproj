@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>scepca</AssemblyName>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScepWright.Server\ScepWright.Server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ScepWright.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="web.config" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

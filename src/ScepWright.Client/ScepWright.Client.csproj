@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScepWright.Core\ScepWright.Core.csproj" />
+    <ProjectReference Include="..\ScepWright.Crypto.BouncyCastle\ScepWright.Crypto.BouncyCastle.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>scepclient</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+
+</Project>

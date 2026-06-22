@@ -1,0 +1,29 @@
+{
+  "Name": "smoke",
+  "Steps": [
+    {
+      "Name": "ca-advertises-caps",
+      "Run": "getcacaps",
+      "Expect": "pass"
+    },
+    {
+      "Name": "enroll-rsa-sha256",
+      "Run": "enroll",
+      "Args": {
+        "subject": "CN=scenario-01",
+        "challenge": "s3cret",
+        "digest": "SHA-256",
+        "cipher": "AES-128-CBC"
+      },
+      "Expect": "pass"
+    },
+    {
+      "Name": "reject-md5-digest",
+      "Run": "probe",
+      "Args": {
+        "digest": "MD5"
+      },
+      "Expect": "badAlg"
+    }
+  ]
+}
