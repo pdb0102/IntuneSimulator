@@ -56,6 +56,7 @@ public class BcRenewalEncodeTests {
         signer = signed.GetSignerInfos().GetSigners().Cast<SignerInformation>().First();
         msg_type = signer.SignedAttributes[new DerObjectIdentifier(MessageTypeOid)];
         Assert.Equal("17", ((DerPrintableString)msg_type.AttrValues[0]).GetString());
-        Assert.Equal(CmsObjectIdentifiers.EnvelopedData.Id, signed.SignedContentType.Id);
+        // RFC 8894 §3.2: outer eContentType MUST be id-data, not id-envelopedData.
+        Assert.Equal(CmsObjectIdentifiers.Data.Id, signed.SignedContentType.Id);
     }
 }
