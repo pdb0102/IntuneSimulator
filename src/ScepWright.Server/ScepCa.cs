@@ -623,7 +623,10 @@ public sealed class ScepCa {
         signed_gen.AddCertificates(ca_cert_store);
 
         enveloped_content = new CmsProcessableByteArray(enveloped_bytes);
-        signed_data = signed_gen.Generate(Org.BouncyCastle.Asn1.Cms.CmsObjectIdentifiers.EnvelopedData.Id, enveloped_content, true);
+        // RFC 8894 §3.2: the SignedData encapContentInfo eContentType MUST be id-data (the inner
+        // pkcsPKIEnvelope carries its own envelopedData ContentInfo). CMS (RFC 5652 §11.1) then forces
+        // the content-type signed attribute to match, so id-data here makes both conformant.
+        signed_data = signed_gen.Generate(Org.BouncyCastle.Asn1.Cms.CmsObjectIdentifiers.Data.Id, enveloped_content, true);
         return signed_data.GetEncoded();
     }
 

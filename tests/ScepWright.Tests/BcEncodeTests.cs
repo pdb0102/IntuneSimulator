@@ -48,7 +48,10 @@ public class BcEncodeTests {
         signer = signed.GetSignerInfos().GetSigners().Cast<SignerInformation>().First();
         msg_type = signer.SignedAttributes[new DerObjectIdentifier(MessageTypeOid)];
         Assert.Equal("19", ((DerPrintableString)msg_type.AttrValues[0]).GetString());
-        Assert.Equal(CmsObjectIdentifiers.EnvelopedData.Id, signed.SignedContentType.Id);
+        // RFC 8894 §3.2: the SignedData encapContentInfo eContentType (and the matching content-type
+        // signed attribute) MUST be id-data, NOT id-envelopedData — the envelopedData OID belongs to
+        // the inner pkcsPKIEnvelope's own ContentInfo, not the outer encapsulated content type.
+        Assert.Equal(CmsObjectIdentifiers.Data.Id, signed.SignedContentType.Id);
     }
 
     [Fact]

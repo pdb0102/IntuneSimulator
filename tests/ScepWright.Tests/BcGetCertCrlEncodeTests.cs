@@ -60,7 +60,8 @@ public class BcGetCertCrlEncodeTests {
 
         signer = signed.GetSignerInfos().GetSigners().Cast<SignerInformation>().First();
         Assert.Equal("21", ((DerPrintableString)signer.SignedAttributes[new DerObjectIdentifier(MessageTypeOid)].AttrValues[0]).GetString());
-        Assert.Equal(CmsObjectIdentifiers.EnvelopedData.Id, signed.SignedContentType.Id);
+        // RFC 8894 §3.2: outer eContentType MUST be id-data, not id-envelopedData.
+        Assert.Equal(CmsObjectIdentifiers.Data.Id, signed.SignedContentType.Id);
 
         ias = IssuerAndSerialNumber.GetInstance(Asn1Object.FromByteArray(inner_der));
         Assert.Equal(10, ias.SerialNumber.Value.IntValue);
