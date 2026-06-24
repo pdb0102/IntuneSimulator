@@ -61,7 +61,7 @@ public class CertRepSignatureDiagnosticsTests {
     }
 
     [Fact]
-    public void Verification_falls_back_to_the_GetCACert_bundle_when_the_signer_cert_is_absent() {
+    public void Absent_signer_cert_verified_via_GetCACert_raises_no_finding() {
         BouncyCastleScepCrypto crypto;
         ScepCa ca;
         IScepKey client_key;
@@ -75,16 +75,42 @@ public class CertRepSignatureDiagnosticsTests {
         cert_rep = BuildCertRep(out crypto, out ca, out client_key);
         stripped = StripCertificates(cert_rep);
 
-        // No certs embedded and no known certs -> can't verify (the original false-negative finding).
+        // No certs embedded and no known certs -> can't verify (no bundle to fall back to).
         Assert.True(crypto.DecodePkiMessage(stripped, client_key, CodecOptions.LenientParsing, null, out without, out error), error);
         Assert.False(without.SignatureValid);
 
-        // Hand it the GetCACert bundle -> it finds the real signer and verifies.
+        // Hand it the GetCACert bundle -> it verifies against the trusted CA cert. Omitting the signer cert
+        // is permitted (CMS makes it optional; it's distributed via GetCACert), so there is NO finding.
         Assert.True(crypto.DecodePkiMessage(stripped, client_key, CodecOptions.LenientParsing, new[] { ca.CertificateBcl }, out with, out error), error);
         Assert.True(with.SignatureValid);
         Assert.Equal(without.SignerClaimedIdentity, with.SignerClaimedIdentity);
 
         notes = string.Join(" ", with.ConformanceNotes.ConvertAll(n => n.What));
+        Assert.DoesNotContain("signature", notes);
+    }
+
+    [Fact]
+    public void Valid_signature_by_a_cert_not_in_the_CA_bundle_raises_a_finding() {
+        BouncyCastleScepCrypto crypto;
+        ScepCa signing_ca;
+        ScepCa other_ca;
+        IScepKey client_key;
+        byte[] cert_rep;
+        PkiMessage msg;
+        string error;
+        string notes;
+
+        // The CertRep is signed by (and embeds) signing_ca's cert, but we hand decode a DIFFERENT CA bundle.
+        cert_rep = BuildCertRep(out crypto, out signing_ca, out client_key);
+        other_ca = ScepCa.Create();
+
+        Assert.True(crypto.DecodePkiMessage(cert_rep, client_key, CodecOptions.LenientParsing, new[] { other_ca.CertificateBcl }, out msg, out error), error);
+
+        // The signature is cryptographically valid (verified against the embedded signer cert)...
+        Assert.True(msg.SignatureValid);
+        // ...but the signer is not the CA/RA the client trusts, so we MUST flag it.
+        notes = string.Join(" ", msg.ConformanceNotes.ConvertAll(n => n.What));
+        Assert.Contains("not", notes.ToLowerInvariant());
         Assert.Contains("GetCACert", notes);
     }
 
