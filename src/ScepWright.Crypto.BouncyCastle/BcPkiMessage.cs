@@ -219,29 +219,27 @@ internal static class BcPkiMessage {
         }
 
         result.SignatureValid = signature_ok;
-        if (signature_ok && (verified_source != "CertRep" || !ReferenceEquals(signer_cert, embedded_match))) {
-            // Verified, but not by the cert the CertRep presented for the claimed signer — surface what
-            // actually signed, since a peer relying on the CertRep's own bag would call this invalid.
-            result.SignerVerifiedWith = $"{DescribeCert(signer_cert)} (from {verified_source})";
+        result.SignerVerifiedWith = signature_ok ? $"{DescribeCert(signer_cert)} (from {verified_source})" : null;
+
+        if (!signature_ok) {
+            // Nothing verified the signature — a genuine integrity/authenticity failure. Report the claimed
+            // signer and how many candidates were tried so a server-implementor can tell a bad signature
+            // from a wrong/missing cert.
             result.ConformanceNotes.Add(new ConformanceNote(NoteSeverity.Warning,
-                $"signature is VALID but was verified using the {verified_source} cert [{DescribeCert(signer_cert)}], not the cert the CertRep presented for the claimed signer ({result.SignerClaimedIdentity})"
-                    + (embedded_match == null
-                        ? " — the CertRep embedded no cert matching the claimed signer; the server should include its RA/CA signing cert in the CertRep"
-                        : $" — the embedded cert [{DescribeCert(embedded_match)}] did not verify the signature"),
-                "SignedData", "RFC 8894 §3.2"));
-        } else if (signature_ok) {
-            result.SignerVerifiedWith = $"{DescribeCert(signer_cert)} (from CertRep)";
-        } else {
-            // Nothing verified: report the claimed signer, the cert we checked, and how many we tried, so a
-            // server-implementor can tell a truly bad signature from a wrong-cert / missing-cert situation.
-            result.SignerVerifiedWith = null;
-            result.ConformanceNotes.Add(new ConformanceNote(NoteSeverity.Warning,
-                $"signature verification FAILED — claimed signer: {result.SignerClaimedIdentity}; "
+                $"CertRep signature did not verify — claimed signer: {result.SignerClaimedIdentity}; "
                     + (embedded_match != null
                         ? $"the cert the CertRep presented for that signer [{DescribeCert(embedded_match)}] did not verify; "
                         : "no cert embedded in the CertRep matched the claimed signer; ")
-                    + $"tried {candidate_count} candidate cert(s) from the CertRep bag and the GetCACert bundle and none produced a valid signature — the signature is invalid against every available cert (wrong signing key, altered message, or the real signing cert was provided by neither GetCACert nor the CertRep)",
+                    + $"tried {candidate_count} candidate cert(s) from the CertRep and the GetCACert bundle and none produced a valid signature — the signature is invalid against every available cert (wrong signing key, altered message, or the actual signing cert is published by neither GetCACert nor the CertRep)",
                 "SignedData", "RFC 8894 §3.2"));
+        } else if (known_certs != null && known_certs.Count > 0 && !SignerIsTrusted(signer_cert, known_certs)) {
+            // Valid signature, but the signing cert is neither one of the CA/RA certs GetCACert returned nor
+            // issued by one. A CMS signature made with a certificate the response supplied itself proves
+            // nothing about authority. (An absent-but-trusted signer cert, by contrast, raises no finding:
+            // CMS makes the certificates field optional and SCEP distributes the CA/RA certs via GetCACert.)
+            result.ConformanceNotes.Add(new ConformanceNote(NoteSeverity.Warning,
+                $"CertRep signature is cryptographically valid but the signing cert [{DescribeCert(signer_cert)}] is NOT among the CA/RA certificates returned by GetCACert, nor issued by one — a valid CMS signature over a self-supplied certificate does not prove the signer is the authorized CA/RA. Confirm the server publishes its RA certificate via GetCACert. (claimed signer: {result.SignerClaimedIdentity})",
+                "SignedData", "RFC 8894 §4.2"));
         }
 
         // Strict-mode gate 1 — signature integrity. Fail unless the caller opted into tolerance
@@ -354,6 +352,30 @@ internal static class BcPkiMessage {
         } catch {
             return false;
         }
+    }
+
+    // True if the verifying cert is one the client trusts: byte-identical to a cert GetCACert returned, or
+    // issued by one (a published RA cert, or an RA cert chaining to the published CA). A signer matching
+    // neither is not demonstrably the authorized CA/RA, however valid its CMS signature.
+    private static bool SignerIsTrusted(Org.BouncyCastle.X509.X509Certificate signer_cert,
+            System.Collections.Generic.IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2> known_certs) {
+        byte[] signer_der;
+        Org.BouncyCastle.X509.X509CertificateParser parser;
+
+        signer_der = signer_cert.GetEncoded();
+        parser = new Org.BouncyCastle.X509.X509CertificateParser();
+        foreach (System.Security.Cryptography.X509Certificates.X509Certificate2 known in known_certs) {
+            if (System.Linq.Enumerable.SequenceEqual(signer_der, known.RawData)) {
+                return true;
+            }
+            try {
+                signer_cert.Verify(parser.ReadCertificate(known.RawData).GetPublicKey());
+                return true;
+            } catch {
+                // not issued by this known cert; keep checking the rest of the bundle.
+            }
+        }
+        return false;
     }
 
     // The candidate certificates the response signature is checked against: every cert embedded in the
